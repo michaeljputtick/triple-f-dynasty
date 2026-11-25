@@ -1,0 +1,204 @@
+@page "/playoffs"
+@inject LeagueHistoryService History
+@inject SleeperClient Sleeper
+
+<PageTitle>Playoff Simulator | Triple F Dynasty</PageTitle>
+
+<h1>Playoff Simulator</h1>
+
+@if (error is not null)
+{
+    <div class="card error">
+        <strong>Couldn't load the schedule.</strong> @error
+        <button class="btn" @onclick="LoadAsync">Try again</button>
+    </div>
+}
+else if (!loaded)
+{
+    <div class="loading"><span class="spinner"></span> Loading standings and the remaining schedule...</div>
+}
+else if (setup is null || outcome is null)
+{
+    <div class="card muted">The regular season is over (or hasn't started), so there's nothing left to simulate. Check <a href="seasons">Seasons</a> for the bracket.</div>
+}
+else
+{
+    var teams = setup.Teams;
+    var ranked = Enumerable.Range(0, teams.Count)
+        .OrderByDescending(i => outcome.Playoff[i])
+        .ThenByDescending(i => outcome.Bye[i])
+        .ThenByDescending(i => outcome.ExpectedWins[i])
+        .ThenByDescending(i => teams[i].ProjectedPointsFor)
+        .ToList();
+    var allPicked = picks.Count == setup.Games.Count;
+
+    <p class="sub">
+        Pick winners for the rest of the regular season (weeks @setup.FirstWeek to @setup.LastWeek). Top @setup.PlayoffTeams make the playoffs, top @setup.Byes get a bye.
+        Ties in record go to points for: current total plus each team's average for its remaining games.
+    </p>
+
+    <div class="sim-controls">
+        <div class="tabs compact">
+            <button class="tab @(!weighted ? "active" : "")" @onclick="() => SetWeighted(false)">Coin flip</button>
+            <button class="tab @(weighted ? "active" : "")" @onclick="() => SetWeighted(true)">Weighted by scoring</button>
+        </div>
+        <button class="btn btn-ghost" @onclick="PickFavorites">Pick favorites</button>
+        <button class="btn btn-ghost" @onclick="Clear" disabled="@(picks.Count == 0)">Clear picks</button>
+        <span class="muted small">@picks.Count of @setup.Games.Count games picked &middot; @(outcome.Exact ? $"exact over {outcome.Scenarios:N0} outcomes" : $"estimated from {outcome.Scenarios:N0} simulations")</span>
+    </div>
+
+    <div class="table-wrap">
+        <table class="grid sim-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th class="left">Team</th>
+                    <th>Record</th>
+                    <th>Proj. Wins</th>
+                    <th class="left">Playoffs</th>
+                    <th class="left">Bye</th>
+                    <th>Seed Range</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var r = 0; r < ranked.Count; r++)
+                {
+                    var i = ranked[r];
+                    var t = teams[i];
+                    <tr class="@(r == setup.PlayoffTeams - 1 ? "cutline" : "")">
+                        <td class="muted">@(r + 1)</td>
+                        <td class="left"><OwnerTag Owner="t.Owner" /></td>
+                        <td class="mono">@t.Wins-@t.Losses@(t.Ties > 0 ? $"-{t.Ties}" : "")</td>
+                        <td class="mono">@outcome.ExpectedWins[i].ToString("0.0")</td>
+                        <td class="left">@Odds(outcome.Playoff[i])</td>
+                        <td class="left">@Odds(outcome.Bye[i])</td>
+                        <td class="mono">@(outcome.BestSeed[i] == outcome.WorstSeed[i] ? Ordinal(outcome.BestSeed[i]) : $"{Ordinal(outcome.BestSeed[i])} to {Ordinal(outcome.WorstSeed[i])}")</td>
+                        <td>@Status(i)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (allPicked)
+    {
+        var seeds = ranked.Take(setup.PlayoffTeams).ToList();
+        <div class="card bracket-card">
+            <h2>Final Seeding With Your Picks</h2>
+            <div class="bracket">
+                @for (var s = 0; s < setup.Byes && s < seeds.Count; s++)
+                {
+                    <div class="bracket-game bye"><span class="seed">@(s + 1)</span><OwnerTag Owner="teams[seeds[s]].Owner" /><span class="muted small">bye</span></div>
+                }
+                @for (var hi = setup.Byes; hi < seeds.Count - 1 - (hi - setup.Byes); hi++)
+                {
+                    var lo = seeds.Count - 1 - (hi - setup.Byes);
+                    <div class="bracket-game">
+                        <span class="seed">@(hi + 1)</span><OwnerTag Owner="teams[seeds[hi]].Owner" />
+                        <span class="vs">vs</span>
+                        <span class="seed">@(lo + 1)</span><OwnerTag Owner="teams[seeds[lo]].Owner" />
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <h2 class="section">Remaining Games</h2>
+    <div class="weeks-grid">
+        @foreach (var week in setup.Games.GroupBy(g => g.Week))
+        {
+            <div class="card week-card">
+                <h2>Week @week.Key</h2>
+                @foreach (var g in week)
+                {
+                    var p = weighted ? PlayoffSim.WinProbability(teams[g.A], teams[g.B]) : 0.5;
+                    picks.TryGetValue(g.Key, out var winner);
+                    var picked = picks.ContainsKey(g.Key);
+                    <div class="matchup-pick">
+                        @PickButton(g, g.A, picked && winner == g.A, picked && winner != g.A, p)
+                        @PickButton(g, g.B, picked && winner == g.B, picked && winner != g.B, 1 - p)
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private PlayoffSetup? setup;
+    private SimOutcome? outcome;
+    private readonly Dictionary<string, int> picks = [];
+    private bool weighted;
+    private bool loaded;
+    private string? error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        error = null;
+        try
+        {
+            var d = await History.LoadAsync();
+            setup = await PlayoffSim.LoadAsync(Sleeper, d);
+            Recompute();
+        }
+        catch (Exception ex) { error = ex.Message; }
+        loaded = true;
+    }
+
+    private void Recompute()
+    {
+        if (setup is not null) outcome = PlayoffSim.Run(setup, picks, weighted);
+    }
+
+    private void SetWeighted(bool value) { weighted = value; Recompute(); }
+
+    private void Toggle(SimGame g, int team)
+    {
+        if (picks.TryGetValue(g.Key, out var current) && current == team) picks.Remove(g.Key);
+        else picks[g.Key] = team;
+        Recompute();
+    }
+
+    private void PickFavorites()
+    {
+        if (setup is null) return;
+        foreach (var g in setup.Games)
+            picks[g.Key] = PlayoffSim.WinProbability(setup.Teams[g.A], setup.Teams[g.B]) >= 0.5 ? g.A : g.B;
+        Recompute();
+    }
+
+    private void Clear() { picks.Clear(); Recompute(); }
+
+    private RenderFragment PickButton(SimGame g, int team, bool isWinner, bool isLoser, double probability) => __builder =>
+    {
+        var t = setup!.Teams[team];
+        <button class="pick-team @(isWinner ? "winner" : isLoser ? "loser" : "")" @onclick="() => Toggle(g, team)">
+            <OwnerTag Owner="t.Owner" />
+            <span class="pick-meta">@t.Wins-@t.Losses &middot; @t.Ppg.ToString("0.0") ppg</span>
+            <span class="pick-odds">@(isWinner ? "W" : isLoser ? "L" : weighted ? probability.ToString("P0") : "")</span>
+        </button>
+    };
+
+    private static RenderFragment Odds(double p) => __builder =>
+    {
+        var pct = (p * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+        <div class="odds">
+            <div class="meter"><span style="width:@pct%"></span></div>
+            <span class="mono">@(p >= 0.9995 ? "100%" : p <= 0.0005 ? (p == 0 ? "0%" : "<0.1%") : p.ToString("0.0%"))</span>
+        </div>
+    };
+
+    private RenderFragment Status(int i) => __builder =>
+    {
+        if (outcome is null || !outcome.Exact) return;
+        if (outcome.Bye[i] >= 1 - 1e-12) { <span class="status clinched">Clinched bye</span> }
+        else if (outcome.Playoff[i] >= 1 - 1e-12) { <span class="status clinched">Clinched</span> }
+        else if (outcome.Playoff[i] <= 1e-12) { <span class="status eliminated">Eliminated</span> }
+        else { <span class="status alive">Alive</span> }
+    };
+
+    private static string Ordinal(int n) => n + (n % 100 is 11 or 12 or 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" });
+}

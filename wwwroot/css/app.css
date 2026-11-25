@@ -404,3 +404,33 @@ tr.playoff td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .landscape-grid tr.selected-row td { box-shadow: inset 0 1px 0 var(--series-1), inset 0 -1px 0 var(--series-1); }
 .quadrant-label { fill: var(--muted); font-size: 11px; font-weight: 600; font-family: Inter, sans-serif; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
 .mini-head { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .5rem; }
+
+/* ---------- Playoff simulator ---------- */
+.sim-controls { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.sim-controls .btn:disabled { opacity: .4; cursor: not-allowed; }
+.sim-table .odds { display: flex; align-items: center; gap: .5rem; }
+.sim-table .meter { width: 80px; margin-right: 0; }
+.sim-table tr.cutline td { border-bottom: 2px dashed var(--accent); }
+.status { font-size: .72rem; font-weight: 750; padding: .18rem .55rem; border-radius: 999px; white-space: nowrap; }
+.status.clinched { background: rgba(52, 211, 153, .14); color: var(--win); }
+.status.eliminated { background: rgba(251, 113, 133, .12); color: var(--loss); }
+.status.alive { background: var(--surface-3); color: var(--text-2); }
+.weeks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 1.1rem; }
+.weeks-grid .card { margin: 0; }
+.matchup-pick { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; margin-bottom: .45rem; }
+.pick-team {
+    display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; text-align: left; min-width: 0;
+    padding: .55rem .65rem; border-radius: var(--radius-sm); cursor: pointer; position: relative;
+    background: var(--surface-2); border: 1px solid var(--line); transition: all .15s;
+}
+.pick-team:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.pick-team.winner { border-color: rgba(52, 211, 153, .6); background: rgba(52, 211, 153, .1); }
+.pick-team.loser { opacity: .45; }
+.pick-team .owner { max-width: 100%; }
+.pick-meta { font-size: .72rem; color: var(--muted); }
+.pick-odds { position: absolute; top: .5rem; right: .6rem; font-size: .75rem; font-weight: 800; color: var(--text-2); }
+.pick-team.winner .pick-odds { color: var(--win); }
+.bracket { display: grid; gap: .5rem; }
+.bracket-game { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .55rem .7rem; border-radius: var(--radius-sm); background: var(--surface-2); }
+.bracket-game.bye { background: var(--accent-soft); }
+.seed { font-size: .72rem; font-weight: 800; color: var(--muted); min-width: 1.2rem; }
