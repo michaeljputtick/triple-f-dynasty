@@ -35,6 +35,8 @@ public record PlayerInfo(string Id, string Name, IReadOnlyList<string> Positions
 
 public record PlayerMove(string PlayerId, string OwnerId);
 
+public record ValueFormat(int Teams, int Qbs, double Ppr);
+
 /// <summary>A draft pick changing hands in a trade. A pick is identified by season, round, and original roster.</summary>
 public record TradedPick(int Season, int Round, int OriginalRosterId, string FromOwnerId, string ToOwnerId);
 
@@ -88,6 +90,12 @@ public class LeagueData
     public List<TeamGame> TeamGames { get; } = [];
     public List<WeekRoster> Rosters { get; } = [];
     public Dictionary<string, PlayerInfo> Players { get; } = [];
+
+    /// <summary>Managers who own a team in the current season.</summary>
+    public HashSet<string> ActiveOwnerIds { get; } = [];
+
+    /// <summary>League format used to request matching dynasty trade values.</summary>
+    public ValueFormat ValueFormat { get; set; } = new(10, 1, 1.0);
 
     public Owner OwnerOf(string id) =>
         Owners.TryGetValue(id, out var o) ? o : new Owner(id, "Unknown", null, null);

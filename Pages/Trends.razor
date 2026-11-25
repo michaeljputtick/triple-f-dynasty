@@ -1,4 +1,5 @@
 @page "/trends"
+@inject SiteSettings Settings
 
 <PageTitle>Trends | Triple F Dynasty</PageTitle>
 
@@ -8,13 +9,14 @@
         if (slots[0] is null && slots[1] is null && trends.Managers.Count > 0)
             slots[0] = trends.Managers[0].Id;
         var t = trends;
+        managers = t.Managers.Where(m => Settings.Shows(d, m.Id)).ToList();
     }
 
     <h1>Trends</h1>
     <p class="sub">Year over year for every manager. Pick up to two to highlight; everyone else stays gray for context.</p>
 
     <div class="picker">
-        @foreach (var m in t.Managers)
+        @foreach (var m in managers)
         {
             var slot = Array.IndexOf(slots, m.Id);
             <button class="pick @(slot >= 0 ? "on" : "")" @onclick="() => Toggle(m.Id)">
@@ -69,7 +71,7 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var m in t.Managers)
+                @foreach (var m in managers)
                 {
                     <tr>
                         <td class="left"><OwnerTag Owner="m" /></td>
@@ -104,6 +106,7 @@
 
 @code {
     private TrendStats? trends;
+    private List<Owner> managers = [];
     private readonly string?[] slots = new string?[2];
     private string metric = "ppg";
 
@@ -116,8 +119,8 @@
         slots[empty >= 0 ? empty : 1] = id;
     }
 
-    private static List<LineChart.ChartSeries> SeriesFor(TrendStats t, Func<string, int, double?> get) =>
-        t.Managers.Select(m => new LineChart.ChartSeries(m.Id, m.Name, t.Seasons.Select(s => get(m.Id, s)).ToList())).ToList();
+    private List<LineChart.ChartSeries> SeriesFor(TrendStats t, Func<string, int, double?> get) =>
+        managers.Select(m => new LineChart.ChartSeries(m.Id, m.Name, t.Seasons.Select(s => get(m.Id, s)).ToList())).ToList();
 
     private double? Cell(TrendStats t, string id, int season) => metric switch
     {
@@ -144,7 +147,7 @@
     private string Shade(TrendStats t, int season, double? value)
     {
         if (value is not double v) return "";
-        var column = t.Managers.Select(m => Cell(t, m.Id, season)).OfType<double>().ToList();
+        var column = managers.Select(m => Cell(t, m.Id, season)).OfType<double>().ToList();
         double min = column.Min(), max = column.Max();
         if (max == min) return "";
         var good = (v - min) / (max - min);

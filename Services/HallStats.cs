@@ -129,9 +129,9 @@ public class HallStats
             .Select(g => new Boomerang(d.PlayerOf(g.Key.PlayerId), d.OwnerOf(g.Key.OwnerId), g.OrderBy(s => s.StartIdx).ToList()))
             .OrderByDescending(b => b.Stints.Count)
             .ThenByDescending(b => b.Stints.Sum(s => s.Weeks))
-            .Take(10).ToList();
+            .ToList();
 
-        LongestTenures = Stints.OrderByDescending(s => s.Weeks).ThenByDescending(s => s.StarterPoints).Take(10).ToList();
+        LongestTenures = Stints.OrderByDescending(s => s.Weeks).ThenByDescending(s => s.StarterPoints).ToList();
 
         Journeymen = Stints
             .GroupBy(s => s.PlayerId)
@@ -143,7 +143,7 @@ public class HallStats
         MostLoyal = stintsByPair
             .Select(g => new Loyalty(d.PlayerOf(g.Key.PlayerId), d.OwnerOf(g.Key.OwnerId), g.Sum(s => s.Starts), g.Sum(s => s.StarterPoints)))
             .OrderByDescending(l => l.Starts).ThenByDescending(l => l.Points)
-            .Take(10).ToList();
+            .ToList();
 
         // ---- Lineup decisions ----
         var slotsBySeason = d.Seasons.ToDictionary(s => s.Season, s => s.LineupSlots);
@@ -173,11 +173,11 @@ public class HallStats
             .ToList();
 
         var benchWeeks = scored.Select(x => new BenchWeek(x.Game, d.OwnerOf(x.Game.OwnerId), x.Optimal)).ToList();
-        WorstBenchWeeks = benchWeeks.OrderByDescending(b => b.Left).Take(10).ToList();
+        WorstBenchWeeks = benchWeeks.OrderByDescending(b => b.Left).ToList();
         CouldaWon = benchWeeks
             .Where(b => b.Game.Lost && b.Optimal > b.Game.PointsAgainst)
             .OrderByDescending(b => b.Optimal - b.Game.PointsAgainst)
-            .Take(10).ToList();
+            .ToList();
 
         // ---- Transactions ----
         var trades = h.Transactions.Where(t => t.Type == "trade").ToList();
@@ -204,14 +204,14 @@ public class HallStats
         var pickupValues = pickups
             .SelectMany(t => t.Adds.Select(a => PickupValue(t, a)))
             .ToList();
-        BiggestBids = pickupValues.Where(p => p.Tx.Bid > 0).OrderByDescending(p => p.Tx.Bid).Take(10).ToList();
+        BiggestBids = pickupValues.Where(p => p.Tx.Bid > 0).OrderByDescending(p => p.Tx.Bid).ToList();
         var distinctPickups = OnePerStint(pickupValues);
-        BestPickups = distinctPickups.OrderByDescending(p => p.StarterPoints).Take(10).ToList();
+        BestPickups = distinctPickups.OrderByDescending(p => p.StarterPoints).ToList();
         FaabRegrets = distinctPickups
             .Where(p => p.Tx.Bid >= 10)
             .OrderBy(p => p.StarterPoints / p.Tx.Bid)
             .ThenByDescending(p => p.Tx.Bid)
-            .Take(10).ToList();
+            .ToList();
 
         MostMoves = CountOwners(pickups.SelectMany(t => t.Adds.Select(a => a.OwnerId)));
         MostTrades = CountOwners(trades.SelectMany(t => t.OwnerIds));
@@ -220,7 +220,7 @@ public class HallStats
             .GroupBy(p => p)
             .Select(g => new PairCount(d.OwnerOf(g.Key.a), d.OwnerOf(g.Key.b), g.Count()))
             .OrderByDescending(p => p.Count)
-            .Take(10).ToList();
+            .ToList();
 
         // ---- Drafts ----
         Picks = h.Picks
@@ -234,11 +234,11 @@ public class HallStats
             .SelectMany(r => r.PlayerPoints.Select(kv => (Roster: r, Player: kv.Key, Points: kv.Value)))
             .ToList();
         BestStarterWeeks = playerWeeks.Where(x => x.Roster.Starters.Contains(x.Player))
-            .OrderByDescending(x => x.Points).Take(10)
+            .OrderByDescending(x => x.Points).Take(200)
             .Select(x => new PlayerWeek(d.PlayerOf(x.Player), d.OwnerOf(x.Roster.OwnerId), x.Roster.Season, x.Roster.Week, x.Points))
             .ToList();
         BenchBombs = playerWeeks.Where(x => !x.Roster.Starters.Contains(x.Player))
-            .OrderByDescending(x => x.Points).Take(10)
+            .OrderByDescending(x => x.Points).Take(200)
             .Select(x => new PlayerWeek(d.PlayerOf(x.Player), d.OwnerOf(x.Roster.OwnerId), x.Roster.Season, x.Roster.Week, x.Points))
             .ToList();
     }
@@ -254,14 +254,14 @@ public class HallStats
     /// <summary>Late-half picks that produced the most for the league.</summary>
     public List<PickValue> Steals(Func<DraftPick, bool> filter) =>
         Picks.Where(p => filter(p.Pick) && p.Pick.Round > p.Pick.Rounds / 2)
-            .OrderByDescending(p => p.LeaguePoints).Take(10).ToList();
+            .OrderByDescending(p => p.LeaguePoints).ToList();
 
     /// <summary>First-round picks that produced the least (skips the newest draft, too early to judge).</summary>
     public List<PickValue> Busts(Func<DraftPick, bool> filter)
     {
         var newest = h.Picks.Count == 0 ? 0 : h.Picks.Max(p => p.Season);
         return Picks.Where(p => filter(p.Pick) && p.Pick.Round == 1 && p.Pick.Season < newest)
-            .OrderBy(p => p.LeaguePoints).Take(10).ToList();
+            .OrderBy(p => p.LeaguePoints).ToList();
     }
 
     public string StintLabel(Stint s)

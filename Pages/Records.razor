@@ -1,11 +1,12 @@
 @page "/records"
+@inject SiteSettings Settings
 
 <PageTitle>Records | Triple F Dynasty</PageTitle>
 
 <LeagueLoader Context="d">
     @{
-        var games = LeagueStats.Meaningful(d).ToList();
-        var seasons = LeagueStats.SeasonTotals(d);
+        var games = LeagueStats.Meaningful(d).Where(g => Settings.Shows(d, g.OwnerId)).ToList();
+        var seasons = LeagueStats.SeasonTotals(d).Where(s => Settings.Shows(d, s.Owner.Id)).ToList();
     }
 
     <h1>Record Book</h1>
@@ -60,12 +61,12 @@
 
         <div class="card">
             <h2>Longest Win Streaks</h2>
-            @StreakList(LeagueStats.Streaks(d, g => g.Won))
+            @StreakList(LeagueStats.Streaks(d, g => g.Won).Where(s => Settings.Shows(d, s.Owner.Id)).ToList())
         </div>
 
         <div class="card">
             <h2>Longest Losing Streaks</h2>
-            @StreakList(LeagueStats.Streaks(d, g => g.Lost))
+            @StreakList(LeagueStats.Streaks(d, g => g.Lost).Where(s => Settings.Shows(d, s.Owner.Id)).ToList())
         </div>
     </div>
 </LeagueLoader>

@@ -1,5 +1,7 @@
 @page "/trades"
 @inject LeagueHistoryService History
+@inject SiteSettings Settings
+@inject TradeValueService Values
 
 <PageTitle>Trades | Triple F Dynasty</PageTitle>
 
@@ -19,7 +21,7 @@ else if (trades is null || data is null)
 }
 else
 {
-    var managers = LeagueStats.AllTime(data).Select(r => r.Owner).ToList();
+    var managers = LeagueStats.AllTime(data).Select(r => r.Owner).Where(o => Settings.Shows(data, o.Id)).ToList();
 
     <div class="tabs">
         <button class="tab @(view == "trades" ? "active" : "")" @onclick='() => view = "trades"'>Trades (@trades.Trades.Count)</button>
@@ -33,6 +35,24 @@ else
             <button class="pick @(owner == m.Id ? "on" : "")" @onclick="() => owner = m.Id"><OwnerTag Owner="m" /></button>
         }
     </div>
+
+    @if (view == "trades" && ShowValues)
+    {
+        <p class="footnote values-note">
+            @if (values is not null)
+            {
+                <span>Value today = current dynasty trade value from <a href="https://www.fantasycalc.com/dynasty-rankings" target="_blank" rel="noopener">FantasyCalc</a> (@data.ValueFormat.Teams-team, @(data.ValueFormat.Qbs == 2 ? "Superflex" : "1QB"), @(data.ValueFormat.Ppr == 1 ? "PPR" : data.ValueFormat.Ppr == 0.5 ? "half PPR" : "standard")). Drafted picks count as the player they became. Turn this off in Settings.</span>
+            }
+            else if (valuesError is not null)
+            {
+                <span>Couldn't load trade values from FantasyCalc right now.</span>
+            }
+            else
+            {
+                <span>Loading trade values...</span>
+            }
+        </p>
+    }
 
     @if (view == "trades")
     {
@@ -58,6 +78,10 @@ else
                         {
                             <span class="edge">Edge: @t.Winner.Owner.Name by @t.Edge.ToString("N0") pts</span>
                         }
+                        @if (ShowValues && values is not null && ValueLeader(t) is var (leader, margin) && leader is not null)
+                        {
+                            <span class="edge value-edge" title="Dynasty value today (FantasyCalc)">Value today: @leader.Name +@margin.ToString("N0")</span>
+                        }
                     </header>
                     <div class="trade-sides">
                         @foreach (var side in t.Sides)
@@ -67,6 +91,10 @@ else
                                     <OwnerTag Owner="side.Owner" />
                                     <span class="side-val">@side.Value.ToString("N0") pts</span>
                                 </div>
+                                @if (ShowValues && values is not null)
+                                {
+                                    <div class="side-value">Value today <strong>@TradeValueService.SideValue(values, side).ToString("N0")</strong></div>
+                                }
                                 <div class="side-label">received</div>
                                 <ul class="assets">
                                     @foreach (var p in side.Players)
@@ -74,6 +102,10 @@ else
                                         <li>
                                             <PlayerTag Player="p.Player" />
                                             <span class="asset-meta">@p.Points.ToString("N0") pts in @p.Starts starts</span>
+                                            @if (ShowValues && values is not null)
+                                            {
+                                                <span class="value-chip">@values.Player(p.Player.Id).ToString("N0")</span>
+                                            }
                                         </li>
                                     }
                                     @foreach (var pk in side.Picks)
@@ -82,6 +114,11 @@ else
                                             <span class="pick-chip">@pk.Pick.Season R@(pk.Pick.Round)</span>
                                             <span class="muted small">(@pk.OriginalOwner.Name's)</span>
                                             @PickOutcomeText(pk.Outcome)
+                                            @if (ShowValues && values is not null)
+                                            {
+                                                var pv = TradeValueService.PickValue(values, pk);
+                                                <span class="value-chip" title="@pv.Note">@pv.Value.ToString("N0")</span>
+                                            }
                                         </li>
                                     }
                                     @if (side.FaabIn > 0)
@@ -161,6 +198,10 @@ else
     private string view = "trades";
     private string? owner;
     private int LatestDraft;
+    private TradeValueTable? values;
+    private string? valuesError;
+
+    private bool ShowValues => Settings.ShowTradeValues;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -174,7 +215,23 @@ else
             LatestDraft = hall.Picks.Count == 0 ? 0 : hall.Picks.Max(p => p.Season);
             trades = await History.LoadTradesAsync();
         }
-        catch (Exception ex) { error = ex.Message; }
+        catch (Exception ex) { error = ex.Message; return; }
+
+        // Trade values are a bonus layer: if FantasyCalc is down, the page still works without them.
+        if (ShowValues)
+        {
+            try { values = await Values.LoadAsync(data.ValueFormat); }
+            catch (Exception ex) { valuesError = ex.Message; }
+        }
+    }
+
+    /// <summary>The side whose received assets are worth the most today, and by how much over the next side.</summary>
+    private (Owner? Leader, int Margin) ValueLeader(TradeView t)
+    {
+        if (values is null || t.Sides.Count < 2) return (null, 0);
+        var ranked = t.Sides.Select(s => (s.Owner, Value: TradeValueService.SideValue(values, s))).OrderByDescending(x => x.Value).ToList();
+        var margin = ranked[0].Value - ranked[1].Value;
+        return margin > 0 ? (ranked[0].Owner, margin) : (null, 0);
     }
 
     private RenderFragment PickOutcomeText(PickOutcome o) =>

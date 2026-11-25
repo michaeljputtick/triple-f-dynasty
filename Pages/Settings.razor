@@ -1,0 +1,63 @@
+@page "/settings"
+@inject SiteSettings Prefs
+
+<PageTitle>Settings | Triple F Dynasty</PageTitle>
+
+<h1>Settings</h1>
+<p class="sub">Saved in this browser only. Other people visiting the site keep their own settings.</p>
+
+<LeagueLoader Context="d">
+    @{
+        var inactive = d.Owners.Values
+            .Where(o => !d.ActiveOwnerIds.Contains(o.Id) && d.TeamGames.Any(g => g.OwnerId == o.Id))
+            .OrderBy(o => o.Name)
+            .ToList();
+    }
+
+    <div class="settings">
+        <div class="card setting">
+            <div class="setting-text">
+                <div class="setting-title">Show inactive managers</div>
+                <div class="setting-desc">
+                    Managers who don't own a team this season. When off, they're left out of standings, records,
+                    head to head, trends, teams, the Hall of Greatness, and the trade filter. Season pages, champions,
+                    and the trade list still show everyone, since those are the historical record.
+                </div>
+                @if (inactive.Count > 0)
+                {
+                    <div class="chips">
+                        @foreach (var o in inactive)
+                        {
+                            <span class="chip">@o.Name</span>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="setting-desc">Everyone who has played is still in the league.</div>
+                }
+            </div>
+            <label class="switch">
+                <input type="checkbox" checked="@Prefs.ShowInactiveManagers" @onchange="e => Prefs.SetShowInactiveManagers((bool)e.Value!)" />
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card setting">
+            <div class="setting-text">
+                <div class="setting-title">Show trade values</div>
+                <div class="setting-desc">
+                    Adds today's dynasty value to every trade and powers the League Landscape page, using
+                    <a href="https://www.fantasycalc.com/dynasty-rankings" target="_blank" rel="noopener">FantasyCalc</a>
+                    values for this league's format (@d.ValueFormat.Teams teams, @(d.ValueFormat.Qbs == 2 ? "Superflex" : "1QB"), @(d.ValueFormat.Ppr == 1 ? "PPR" : d.ValueFormat.Ppr == 0.5 ? "half PPR" : "standard")).
+                </div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" checked="@Prefs.ShowTradeValues" @onchange="e => Prefs.SetShowTradeValues((bool)e.Value!)" />
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <button class="btn btn-ghost" @onclick="Prefs.Reset">Reset to defaults</button>
+    </div>
+</LeagueLoader>

@@ -1,10 +1,11 @@
 @page "/h2h"
+@inject SiteSettings Settings
 
 <PageTitle>Head to Head | Triple F Dynasty</PageTitle>
 
 <LeagueLoader Context="d">
     @{
-        var owners = LeagueStats.AllTime(d).Select(r => r.Owner).ToList();
+        var owners = LeagueStats.AllTime(d).Select(r => r.Owner).Where(o => Settings.Shows(d, o.Id)).ToList();
     }
 
     <h1>Head to Head</h1>

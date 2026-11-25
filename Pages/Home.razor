@@ -1,10 +1,11 @@
 @page "/"
+@inject SiteSettings Settings
 
 <PageTitle>Standings | Triple F Dynasty</PageTitle>
 
 <LeagueLoader Context="d">
     @{
-        var rows = Sort(LeagueStats.AllTime(d));
+        var rows = Sort(LeagueStats.AllTime(d).Where(r => Settings.Shows(d, r.Owner.Id)).ToList());
         var done = d.Seasons.Where(s => s.ChampionId is not null).ToList();
     }
 

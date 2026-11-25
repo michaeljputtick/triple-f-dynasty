@@ -77,6 +77,15 @@ public class LeagueHistoryService(SleeperClient sleeper, PlayerDirectory playerD
         foreach (var id in data.TeamGames.Select(g => g.OwnerId).Distinct().Where(id => !data.Owners.ContainsKey(id)))
             data.Owners[id] = new Owner(id, "Orphan team", null, null);
 
+        var current = chain[^1];
+        foreach (var id in seasons[^1].Info.RosterOwners.Values.Where(id => !id.StartsWith("roster-")))
+            data.ActiveOwnerIds.Add(id);
+        var qbSlots = current.RosterPositions.Count(p => p is "QB" or "SUPER_FLEX");
+        data.ValueFormat = new ValueFormat(
+            Teams: current.TotalRosters > 0 ? current.TotalRosters : seasons[^1].Info.RosterOwners.Count,
+            Qbs: qbSlots >= 2 ? 2 : 1,
+            Ppr: current.ScoringSettings?.GetValueOrDefault("rec") ?? 1.0);
+
         return data;
     }
 

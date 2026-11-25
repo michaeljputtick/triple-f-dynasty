@@ -1,5 +1,6 @@
 @page "/hall"
 @inject LeagueHistoryService History
+@inject SiteSettings Settings
 
 <PageTitle>Hall of Greatness | Triple F Dynasty</PageTitle>
 
@@ -19,12 +20,12 @@ else if (stats is null || data is null)
 }
 else
 {
-    var bestMgr = stats.Lineups.Where(l => l.Games >= 10).MaxBy(l => l.Efficiency);
-    var worstMgr = stats.Lineups.Where(l => l.Games >= 10).MinBy(l => l.Efficiency);
-    var drafter = stats.Drafters(_ => true).FirstOrDefault();
-    var whale = stats.Faab.FirstOrDefault();
-    var pincher = stats.Faab.LastOrDefault();
-    var benchKing = stats.Lineups.MaxBy(l => l.BenchPoints);
+    var bestMgr = stats.Lineups.Where(l => l.Games >= 10 && Shows(l.Owner.Id)).MaxBy(l => l.Efficiency);
+    var worstMgr = stats.Lineups.Where(l => l.Games >= 10 && Shows(l.Owner.Id)).MinBy(l => l.Efficiency);
+    var drafter = stats.Drafters(p => Shows(p.OwnerId)).FirstOrDefault();
+    var whale = stats.Faab.FirstOrDefault(f => Shows(f.Owner.Id));
+    var pincher = stats.Faab.LastOrDefault(f => Shows(f.Owner.Id));
+    var benchKing = stats.Lineups.Where(l => Shows(l.Owner.Id)).MaxBy(l => l.BenchPoints);
 
     <section class="awards">
         @if (bestMgr is not null)
@@ -59,7 +60,7 @@ else
         {
             @Award("✂️", "Most Cut Player", @<PlayerTag Player="cut.Player" />, $"dropped {cut.Count} times")
         }
-        @if (stats.Boomerangs.FirstOrDefault() is { } boom)
+        @if (stats.Boomerangs.FirstOrDefault(b => Shows(b.Owner.Id)) is { } boom)
         {
             @Award("🪃", "Boomerang", @<PlayerTag Player="boom.Player" />, $"{boom.Stints.Count} stints with {boom.Owner.Name}")
         }
@@ -82,7 +83,7 @@ else
                 </tr>
             </thead>
             <tbody>
-                @foreach (var r in stats.Lineups)
+                @foreach (var r in stats.Lineups.Where(l => Shows(l.Owner.Id)))
                 {
                     <tr>
                         <td class="left"><OwnerTag Owner="r.Owner" /></td>
@@ -107,7 +108,7 @@ else
         <div class="card">
             <h2>Most Points Left on Bench</h2>
             <ol class="rank">
-                @foreach (var b in stats.WorstBenchWeeks)
+                @foreach (var b in stats.WorstBenchWeeks.Where(b => Shows(b.Owner.Id)).Take(10))
                 {
                     <li>
                         <div class="rank-main">
@@ -122,7 +123,7 @@ else
         <div class="card">
             <h2>Coulda Won</h2>
             <ol class="rank">
-                @foreach (var b in stats.CouldaWon)
+                @foreach (var b in stats.CouldaWon.Where(b => Shows(b.Owner.Id)).Take(10))
                 {
                     <li>
                         <div class="rank-main">
@@ -155,7 +156,7 @@ else
                 </tr>
             </thead>
             <tbody>
-                @foreach (var r in stats.Drafters(DraftFilter))
+                @foreach (var r in stats.Drafters(VisibleDraftFilter))
                 {
                     <tr>
                         <td class="left"><OwnerTag Owner="r.Owner" /></td>
@@ -178,11 +179,11 @@ else
     <div class="records">
         <div class="card">
             <h2>Draft Steals</h2>
-            @PickList(stats.Steals(DraftFilter))
+            @PickList(stats.Steals(VisibleDraftFilter).Take(10).ToList())
         </div>
         <div class="card">
             <h2>First-Round Busts</h2>
-            @PickList(stats.Busts(DraftFilter))
+            @PickList(stats.Busts(VisibleDraftFilter).Take(10).ToList())
         </div>
     </div>
 
@@ -200,7 +201,7 @@ else
                 </tr>
             </thead>
             <tbody>
-                @foreach (var f in stats.Faab)
+                @foreach (var f in stats.Faab.Where(f => Shows(f.Owner.Id)))
                 {
                     <tr>
                         <td class="left"><OwnerTag Owner="f.Owner" /></td>
@@ -217,15 +218,15 @@ else
     <div class="records">
         <div class="card">
             <h2>Biggest FAAB Bids</h2>
-            @PickupList(stats.BiggestBids)
+            @PickupList(Top(stats.BiggestBids, p => p.Owner.Id))
         </div>
         <div class="card">
             <h2>Best Pickups</h2>
-            @PickupList(stats.BestPickups)
+            @PickupList(Top(stats.BestPickups, p => p.Owner.Id))
         </div>
         <div class="card">
             <h2>FAAB Regrets</h2>
-            @PickupList(stats.FaabRegrets)
+            @PickupList(Top(stats.FaabRegrets, p => p.Owner.Id))
         </div>
         <div class="card">
             <h2>Most Added Players</h2>
@@ -246,7 +247,7 @@ else
         <div class="card">
             <h2>Trade Barons</h2>
             <ol class="rank">
-                @foreach (var o in stats.MostTrades.Take(10))
+                @foreach (var o in stats.MostTrades.Where(o => Shows(o.Owner.Id)).Take(10))
                 {
                     <li><div class="rank-main"><OwnerTag Owner="o.Owner" /></div><span class="rank-val">@o.Count</span></li>
                 }
@@ -255,7 +256,7 @@ else
         <div class="card">
             <h2>Favorite Trade Partners</h2>
             <ol class="rank">
-                @foreach (var p in stats.TradePartners)
+                @foreach (var p in stats.TradePartners.Where(p => Shows(p.A.Id) && Shows(p.B.Id)).Take(10))
                 {
                     <li>
                         <div class="rank-main pair"><OwnerTag Owner="p.A" /><span class="vs">&amp;</span><OwnerTag Owner="p.B" /></div>
@@ -271,7 +272,7 @@ else
         <div class="card">
             <h2>Boomerangs</h2>
             <ol class="rank">
-                @foreach (var b in stats.Boomerangs)
+                @foreach (var b in stats.Boomerangs.Where(b => Shows(b.Owner.Id)).Take(10))
                 {
                     <li>
                         <div class="rank-main">
@@ -291,7 +292,7 @@ else
         <div class="card">
             <h2>Longest Tenure</h2>
             <ol class="rank">
-                @foreach (var s in stats.LongestTenures)
+                @foreach (var s in stats.LongestTenures.Where(s => Shows(s.OwnerId)).Take(10))
                 {
                     <li>
                         <div class="rank-main">
@@ -321,7 +322,7 @@ else
         <div class="card">
             <h2>Ride or Die</h2>
             <ol class="rank">
-                @foreach (var l in stats.MostLoyal)
+                @foreach (var l in stats.MostLoyal.Where(l => Shows(l.Owner.Id)).Take(10))
                 {
                     <li>
                         <div class="rank-main">
@@ -339,11 +340,11 @@ else
     <div class="records">
         <div class="card">
             <h2>Biggest Single-Player Weeks</h2>
-            @PlayerWeekList(stats.BestStarterWeeks)
+            @PlayerWeekList(Top(stats.BestStarterWeeks, w => w.Owner.Id))
         </div>
         <div class="card">
             <h2>Bench Bombs</h2>
-            @PlayerWeekList(stats.BenchBombs)
+            @PlayerWeekList(Top(stats.BenchBombs, w => w.Owner.Id))
         </div>
     </div>
 }
@@ -353,6 +354,12 @@ else
     private HallStats? stats;
     private string? error;
     private string draftTab = "all";
+
+    private bool Shows(string ownerId) => data is null || Settings.Shows(data, ownerId);
+
+    private List<T> Top<T>(IEnumerable<T> items, Func<T, string> ownerOf) => items.Where(x => Shows(ownerOf(x))).Take(10).ToList();
+
+    private Func<DraftPick, bool> VisibleDraftFilter => p => DraftFilter(p) && Shows(p.OwnerId);
 
     private Func<DraftPick, bool> DraftFilter => draftTab switch
     {

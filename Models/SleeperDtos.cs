@@ -12,6 +12,8 @@ public class SleeperLeague
     public string? PreviousLeagueId { get; set; }
     public List<string> RosterPositions { get; set; } = [];
     public SleeperLeagueSettings Settings { get; set; } = new();
+    public Dictionary<string, double>? ScoringSettings { get; set; }
+    public int TotalRosters { get; set; }
 }
 
 public class SleeperLeagueSettings
@@ -40,6 +42,7 @@ public class SleeperRoster
 {
     public int RosterId { get; set; }
     public string? OwnerId { get; set; }
+    public List<string>? Players { get; set; }
 }
 
 public class SleeperMatchup

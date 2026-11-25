@@ -1,4 +1,5 @@
 @page "/teams"
+@inject SiteSettings Settings
 
 <PageTitle>Teams | Triple F Dynasty</PageTitle>
 
@@ -6,7 +7,9 @@
     @{
         trends ??= new TrendStats(d);
         var t = trends;
-        selected ??= t.Managers.FirstOrDefault()?.Id;
+        var managers = t.Managers.Where(m => Settings.Shows(d, m.Id)).ToList();
+        if (selected is null || !managers.Any(m => m.Id == selected))
+            selected = managers.FirstOrDefault()?.Id;
         var owner = selected is null ? null : d.OwnerOf(selected);
         var allTime = LeagueStats.AllTime(d).FirstOrDefault(r => r.Owner.Id == selected);
         var latestValue = t.Seasons.AsEnumerable().Reverse()
@@ -20,7 +23,7 @@
     <p class="sub">Each manager's best players at every position, by points scored in their starting lineup.</p>
 
     <div class="picker">
-        @foreach (var m in t.Managers)
+        @foreach (var m in managers)
         {
             <button class="pick @(m.Id == selected ? "on" : "")" @onclick="() => selected = m.Id">
                 <OwnerTag Owner="m" />

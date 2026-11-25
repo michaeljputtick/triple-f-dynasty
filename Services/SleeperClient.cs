@@ -27,6 +27,10 @@ public class SleeperClient(HttpClient http)
     public async Task<List<SleeperBracketMatch>> GetWinnersBracketAsync(string leagueId) =>
         await http.GetFromJsonAsync<List<SleeperBracketMatch>>($"league/{leagueId}/winners_bracket", Json) ?? [];
 
+    /// <summary>Future picks that have changed hands (original roster -> current owner roster).</summary>
+    public async Task<List<SleeperTradedPick>> GetTradedPicksAsync(string leagueId) =>
+        await http.GetFromJsonAsync<List<SleeperTradedPick>>($"league/{leagueId}/traded_picks", Json) ?? [];
+
     public async Task<List<SleeperTransaction>> GetTransactionsAsync(string leagueId, int leg) =>
         await http.GetFromJsonAsync<List<SleeperTransaction>>($"league/{leagueId}/transactions/{leg}", Json) ?? [];
 

@@ -1,0 +1,288 @@
+@page "/landscape"
+@using System.Globalization
+@inject LeagueHistoryService History
+@inject TradeValueService Values
+@inject SleeperClient Sleeper
+@inject SiteSettings Settings
+
+<PageTitle>League Landscape | Triple F Dynasty</PageTitle>
+
+<h1>League Landscape</h1>
+<p class="sub">Every team's current roster and future picks, valued with today's dynasty trade values. Click a team to highlight it everywhere.</p>
+
+@if (!Settings.ShowTradeValues)
+{
+    <div class="card muted">Trade values are turned off. Turn them on in <a href="settings">Settings</a> to see the landscape.</div>
+}
+else if (error is not null)
+{
+    <div class="card error">
+        <strong>Couldn't build the landscape.</strong> @error
+        <button class="btn" @onclick="LoadAsync">Try again</button>
+    </div>
+}
+else if (teams is null || data is null)
+{
+    <div class="loading"><span class="spinner"></span> Valuing every roster...</div>
+}
+else
+{
+    var ranked = teams.OrderByDescending(t => t.TotalValue(mode)).ToList();
+    var rank = Ranks(ranked);
+
+    <div class="tabs">
+        <button class="tab @(mode == LandscapeMode.FullTeamAndPicks ? "active" : "")" @onclick="() => mode = LandscapeMode.FullTeamAndPicks">Full Team + Picks</button>
+        <button class="tab @(mode == LandscapeMode.FullTeam ? "active" : "")" @onclick="() => mode = LandscapeMode.FullTeam">Full Team</button>
+        <button class="tab @(mode == LandscapeMode.Starters ? "active" : "")" @onclick="() => mode = LandscapeMode.Starters">Starters</button>
+    </div>
+
+    <h2 class="section">Power Rankings <span class="section-note">Rank within the league; darker is better. Hover a cell for its value.</span></h2>
+    <div class="table-wrap">
+        <table class="grid landscape-grid">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th class="left">Team</th>
+                    <th>Team</th>
+                    @foreach (var pos in TeamLandscape.Positions)
+                    {
+                        <th><span class="pos pos-@pos">@pos</span></th>
+                    }
+                    <th>Picks</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < ranked.Count; i++)
+                {
+                    var t = ranked[i];
+                    var id = t.Owner.Id;
+                    <tr class="clickable @(selected == id ? "selected-row" : "")" @onclick="() => Toggle(id)">
+                        <td class="muted">@(i + 1)</td>
+                        <td class="left"><OwnerTag Owner="t.Owner" /></td>
+                        @RankCell(rank[("Team", id)], t.TotalValue(mode), ranked.Count)
+                        @foreach (var pos in TeamLandscape.Positions)
+                        {
+                            @RankCell(rank[(pos, id)], t.PositionValue(pos, mode), ranked.Count)
+                        }
+                        @RankCell(rank[("Picks", id)], t.PickValue, ranked.Count)
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="chart-grid">
+        <div class="card chart-card">
+            <h2>League Landscape</h2>
+            <p class="chart-note">Total value vs. value-weighted average age. Lines mark the league medians.</p>
+            @Scatter(ranked)
+        </div>
+        <div class="card chart-card">
+            <h2>Teams by Position</h2>
+            <p class="chart-note">Each dot is a team; higher is stronger, relative to the best team at that position.</p>
+            @Strips(ranked)
+        </div>
+    </div>
+
+    @if (selected is not null && teams.FirstOrDefault(t => t.Owner.Id == selected) is { } team)
+    {
+        <div class="card">
+            <h2><OwnerTag Owner="team.Owner" /> <span class="section-note">@team.TotalValue(mode).ToString("N0") total &middot; avg age @(team.AverageAge(mode)?.ToString("0.0") ?? "n/a")</span></h2>
+            <div class="records">
+                <div>
+                    <h3 class="mini-head">Top players</h3>
+                    <ol class="rank">
+                        @foreach (var p in team.Players.Where(p => mode != LandscapeMode.Starters || p.Starter).Where(p => p.Value > 0).Take(12))
+                        {
+                            <li>
+                                <div class="rank-main">
+                                    <PlayerTag Player="p.Player" />
+                                    <span class="rank-meta">@(p.Age is double a ? $"age {a:0.0}" : "age n/a")@(p.Starter ? " · starter" : "")</span>
+                                </div>
+                                <span class="rank-val">@p.Value.ToString("N0")</span>
+                            </li>
+                        }
+                    </ol>
+                </div>
+                <div>
+                    <h3 class="mini-head">Future picks</h3>
+                    @if (team.Picks.Count == 0)
+                    {
+                        <p class="muted">No picks in the next three drafts.</p>
+                    }
+                    <ol class="rank">
+                        @foreach (var p in team.Picks)
+                        {
+                            <li>
+                                <div class="rank-main">
+                                    <span><span class="pick-chip">@p.Season R@(p.Round)</span> <span class="muted small">@(p.OriginalOwner.Id == team.Owner.Id ? "own" : $"from {p.OriginalOwner.Name}")</span></span>
+                                </div>
+                                <span class="rank-val">@p.Value.ToString("N0")</span>
+                            </li>
+                        }
+                    </ol>
+                </div>
+            </div>
+        </div>
+    }
+
+    <p class="footnote">Values from <a href="https://www.fantasycalc.com/dynasty-rankings" target="_blank" rel="noopener">FantasyCalc</a> for this league's format. Picks use FantasyCalc's generic round value for the next three drafts; kickers and defenses have no value.</p>
+}
+
+@code {
+    private LeagueData? data;
+    private List<TeamLandscape>? teams;
+    private string? error;
+    private string? selected;
+    private string? hover;
+    private LandscapeMode mode = LandscapeMode.FullTeamAndPicks;
+
+    protected override Task OnInitializedAsync() => Settings.ShowTradeValues ? LoadAsync() : Task.CompletedTask;
+
+    private async Task LoadAsync()
+    {
+        error = null;
+        try
+        {
+            data = await History.LoadAsync();
+            var values = await Values.LoadAsync(data.ValueFormat);
+            teams = await LandscapeBuilder.BuildAsync(Sleeper, data, values);
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private void Toggle(string id) => selected = selected == id ? null : id;
+
+    /// <summary>Rank (1 = best) of every team in every column, ties sharing a rank.</summary>
+    private Dictionary<(string Col, string Owner), int> Ranks(List<TeamLandscape> list)
+    {
+        var result = new Dictionary<(string, string), int>();
+        void Rank(string col, Func<TeamLandscape, int> value)
+        {
+            foreach (var t in list)
+                result[(col, t.Owner.Id)] = 1 + list.Count(o => value(o) > value(t));
+        }
+        Rank("Team", t => t.TotalValue(mode));
+        foreach (var pos in TeamLandscape.Positions) Rank(pos, t => t.PositionValue(pos, mode));
+        Rank("Picks", t => t.PickValue);
+        return result;
+    }
+
+    /// <summary>Single-hue sequential shading: rank 1 darkest blue, last place nearly bare.</summary>
+    private static RenderFragment RankCell(int rank, int value, int count) => __builder =>
+    {
+        var strength = count <= 1 ? 1 : 1 - (rank - 1) / (double)(count - 1);
+        var alpha = (0.06 + 0.62 * strength).ToString("0.00", CultureInfo.InvariantCulture);
+        <td class="rank-cell" style="background: rgba(57, 135, 229, @alpha)" title="@value.ToString("N0")">@rank</td>
+    };
+
+    private const double W = 560, H = 360, L = 52, R = 18, T = 18, B = 42;
+
+    private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private RenderFragment Scatter(List<TeamLandscape> list) => __builder =>
+    {
+        var pts = list.Select(t => (Team: t, X: (double)t.TotalValue(mode), Y: t.AverageAge(mode))).Where(p => p.Y is not null).ToList();
+        if (pts.Count == 0) return;
+        double xMin = pts.Min(p => p.X), xMax = pts.Max(p => p.X);
+        double yMin = pts.Min(p => p.Y!.Value), yMax = pts.Max(p => p.Y!.Value);
+        double xPad = Math.Max(1, (xMax - xMin) * 0.08), yPad = Math.Max(0.2, (yMax - yMin) * 0.12);
+        xMin -= xPad; xMax += xPad; yMin -= yPad; yMax += yPad;
+        double X(double v) => L + (v - xMin) / (xMax - xMin) * (W - L - R);
+        double Y(double v) => T + (yMax - v) / (yMax - yMin) * (H - T - B);
+        var xs = pts.Select(p => p.X).OrderBy(v => v).ToList();
+        var ys = pts.Select(p => p.Y!.Value).OrderBy(v => v).ToList();
+        double xMed = xs[xs.Count / 2], yMed = ys[ys.Count / 2];
+        var hovered = pts.FirstOrDefault(p => p.Team.Owner.Id == hover);
+
+        <div class="chart">
+            <svg class="chart-svg" viewBox="0 0 @W @H" role="img" aria-label="Team value versus average age">
+                <g>
+                    <line class="grid-line" x1="@F(L)" x2="@F(L)" y1="@F(T)" y2="@F(H - B)" />
+                    <line class="grid-line" x1="@F(L)" x2="@F(W - R)" y1="@F(H - B)" y2="@F(H - B)" />
+                    <line class="crosshair" x1="@F(X(xMed))" x2="@F(X(xMed))" y1="@F(T)" y2="@F(H - B)" />
+                    <line class="crosshair" x1="@F(L)" x2="@F(W - R)" y1="@F(Y(yMed))" y2="@F(Y(yMed))" />
+                    <text class="quadrant-label" x="@F(W - R - 6)" y="@F(T + 12)" text-anchor="end">Win now</text>
+                    <text class="quadrant-label" x="@F(W - R - 6)" y="@F(H - B - 8)" text-anchor="end">Built to last</text>
+                    <text class="quadrant-label" x="@F(L + 6)" y="@F(T + 12)">Stuck</text>
+                    <text class="quadrant-label" x="@F(L + 6)" y="@F(H - B - 8)">Rebuilding</text>
+                    <text class="axis-label" x="@F(W - R)" y="@F(H - 10)" text-anchor="end">Team value →</text>
+                    <text class="axis-label" x="14" y="@F(T + 4)" transform="rotate(-90 14 @F(T + 4))" text-anchor="end">Avg. age →</text>
+                    <text class="axis-label" x="@F(L - 6)" y="@F(Y(yMin + yPad) + 4)" text-anchor="end">@((yMin + yPad).ToString("0.0"))</text>
+                    <text class="axis-label" x="@F(L - 6)" y="@F(Y(yMax - yPad) + 4)" text-anchor="end">@((yMax - yPad).ToString("0.0"))</text>
+                </g>
+                @foreach (var p in pts.OrderBy(p => p.Team.Owner.Id == selected))
+                {
+                    var id = p.Team.Owner.Id;
+                    var on = id == selected;
+                    <g>
+                        <circle class="dot @(on ? "slot-1" : "slot-0")" cx="@F(X(p.X))" cy="@F(Y(p.Y!.Value))" r="@(on || id == hover ? 8 : 6)" />
+                        @if (on)
+                        {
+                            <g><text class="direct-label" x="@F(X(p.X))" y="@F(Y(p.Y!.Value) - 13)" text-anchor="middle">@p.Team.Owner.Name</text></g>
+                        }
+                        <circle class="hit" cx="@F(X(p.X))" cy="@F(Y(p.Y!.Value))" r="14"
+                                @onmouseenter="() => hover = id" @onmouseleave="() => hover = null" @onclick="() => Toggle(id)" />
+                    </g>
+                }
+            </svg>
+            @if (hovered.Team is not null)
+            {
+                <div class="tooltip @(X(hovered.X) > W * 0.6 ? "flip" : "")" style="left:@F(X(hovered.X) / W * 100)%; top:@F(Y(hovered.Y!.Value) / H * 100)%">
+                    <div class="tooltip-title">@hovered.Team.Owner.Name</div>
+                    <div class="tooltip-row strong"><span class="tooltip-name">Value</span><span class="tooltip-val">@hovered.X.ToString("N0")</span></div>
+                    <div class="tooltip-row strong"><span class="tooltip-name">Avg. age</span><span class="tooltip-val">@hovered.Y!.Value.ToString("0.0")</span></div>
+                </div>
+            }
+        </div>
+    };
+
+    private RenderFragment Strips(List<TeamLandscape> list) => __builder =>
+    {
+        var cols = TeamLandscape.Positions.Select(p => (Label: p + "s", Value: (Func<TeamLandscape, int>)(t => t.PositionValue(p, mode))))
+            .Append(("Picks", t => t.PickValue)).ToList();
+        double colW = (W - 20) / cols.Count;
+        double top = 20, bottom = H - 40;
+        (string Team, string Col, int Value)? tip = null;
+        double tipX = 0, tipY = 0;
+
+        <div class="chart">
+            <svg class="chart-svg" viewBox="0 0 @W @H" role="img" aria-label="Team strength by position">
+                @for (var c = 0; c < cols.Count; c++)
+                {
+                    var col = cols[c];
+                    var cx = 10 + colW * c + colW / 2;
+                    var max = Math.Max(1, list.Max(t => col.Value(t)));
+                    // Spread ties sideways so overlapping teams stay visible.
+                    var placed = new List<(double Y, int Count)>();
+                    <g>
+                        <line class="grid-line" x1="@F(cx)" x2="@F(cx)" y1="@F(top)" y2="@F(bottom)" />
+                        <text class="axis-label" x="@F(cx)" y="@F(H - 14)" text-anchor="middle">@col.Label</text>
+                        @foreach (var t in list.OrderBy(t => t.Owner.Id == selected))
+                        {
+                            var v = col.Value(t);
+                            var y = bottom - v / (double)max * (bottom - top);
+                            var nearby = placed.Count(p => Math.Abs(p.Y - y) < 11);
+                            placed.Add((y, nearby));
+                            var x = cx + (nearby == 0 ? 0 : (nearby % 2 == 1 ? 1 : -1) * 11 * ((nearby + 1) / 2));
+                            var id = t.Owner.Id;
+                            var on = id == selected;
+                            var key = $"{id}|{col.Label}";
+                            if (hover == key) { tip = (t.Owner.Name, col.Label, v); tipX = x; tipY = y; }
+                            <circle class="dot @(on ? "slot-1" : "slot-0")" cx="@F(x)" cy="@F(y)" r="@(on || hover == key ? 7.5 : 5.5)" />
+                            <circle class="hit" cx="@F(x)" cy="@F(y)" r="10"
+                                    @onmouseenter="() => hover = key" @onmouseleave="() => hover = null" @onclick="() => Toggle(id)" />
+                        }
+                    </g>
+                }
+            </svg>
+            @if (tip is { } tp)
+            {
+                <div class="tooltip @(tipX > W * 0.6 ? "flip" : "")" style="left:@F(tipX / W * 100)%; top:@F(tipY / H * 100)%">
+                    <div class="tooltip-title">@tp.Team</div>
+                    <div class="tooltip-row strong"><span class="tooltip-name">@tp.Col</span><span class="tooltip-val">@tp.Value.ToString("N0")</span></div>
+                </div>
+            }
+        </div>
+    };
+}

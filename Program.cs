@@ -12,5 +12,8 @@ builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri("https://
 builder.Services.AddScoped<SleeperClient>();
 builder.Services.AddScoped(_ => new PlayerDirectory(new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) }));
 builder.Services.AddScoped<LeagueHistoryService>();
+builder.Services.AddScoped<SiteSettings>();
+// FantasyCalc's dynasty values API is public and CORS-enabled, and keys players by Sleeper id.
+builder.Services.AddScoped(_ => new TradeValueService(new HttpClient { BaseAddress = new Uri("https://api.fantasycalc.com/") }));
 
 await builder.Build().RunAsync();
