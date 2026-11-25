@@ -1,0 +1,177 @@
+@using System.Globalization
+
+<div class="chart" @onmouseleave="() => hover = null">
+    <svg class="chart-svg" viewBox="0 0 @W @H" role="img" aria-label="@Label">
+        @foreach (var t in ticks)
+        {
+            <g>
+                <line class="grid-line" x1="@F(L)" x2="@F(W - R)" y1="@F(Y(t))" y2="@F(Y(t))" />
+                <text class="axis-label" x="@F(L - 8)" y="@F(Y(t) + 4)" text-anchor="end">@Format(t)</text>
+            </g>
+        }
+        @for (var i = 0; i < Seasons.Count; i++)
+        {
+            <g><text class="axis-label" x="@F(X(i))" y="@F(H - 6)" text-anchor="middle">@Seasons[i]</text></g>
+        }
+
+        @if (hover is int h)
+        {
+            <line class="crosshair" x1="@F(X(h))" x2="@F(X(h))" y1="@F(T)" y2="@F(H - B)" />
+        }
+
+        @foreach (var s in Series.Where(s => SlotOf(s.Id) < 0))
+        {
+            <path class="line context" d="@PathFor(s)" />
+        }
+        @foreach (var s in Series.Where(s => SlotOf(s.Id) >= 0))
+        {
+            var slot = SlotOf(s.Id);
+            <path class="line slot-@slot" d="@PathFor(s)" />
+            @for (var i = 0; i < s.Values.Count; i++)
+            {
+                if (s.Values[i] is double v)
+                {
+                    <circle class="dot slot-@slot" cx="@F(X(i))" cy="@F(Y(v))" r="@(hover == i ? 5.5 : 4)" />
+                }
+            }
+            var last = LastIndex(s);
+            if (last >= 0)
+            {
+                var ly = LabelY(s);
+                <g>
+                    <circle class="dot slot-@slot" cx="@F(W - R + 12)" cy="@F(ly)" r="3.5" />
+                    <text class="direct-label" x="@F(W - R + 20)" y="@F(ly + 4)">@Truncate(s.Name)</text>
+                </g>
+            }
+        }
+
+        @for (var i = 0; i < Seasons.Count; i++)
+        {
+            var idx = i;
+            <rect class="hit" x="@F(X(i) - Step / 2)" y="0" width="@F(Step)" height="@H" @onmouseenter="() => hover = idx" @onclick="() => hover = idx" />
+        }
+    </svg>
+
+    @if (hover is int hi)
+    {
+        var rows = Series
+            .Where(s => s.Values[hi] is not null)
+            .OrderBy(s => InvertY ? s.Values[hi]!.Value : -s.Values[hi]!.Value)
+            .ToList();
+        <div class="tooltip @(X(hi) > W * 0.6 ? "flip" : "")" style="left:@F(X(hi) / W * 100)%">
+            <div class="tooltip-title">@Seasons[hi]</div>
+            @foreach (var s in rows)
+            {
+                var slot = SlotOf(s.Id);
+                <div class="tooltip-row @(slot >= 0 ? "strong" : "")">
+                    <span class="swatch @(slot >= 0 ? $"slot-{slot}" : "context")"></span>
+                    <span class="tooltip-name">@s.Name</span>
+                    <span class="tooltip-val">@Format(s.Values[hi]!.Value)</span>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    public record ChartSeries(string Id, string Name, IReadOnlyList<double?> Values);
+
+    [Parameter, EditorRequired] public IReadOnlyList<int> Seasons { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<ChartSeries> Series { get; set; } = [];
+    /// <summary>Up to two highlighted series ids; the index is the color slot.</summary>
+    [Parameter] public IReadOnlyList<string?> Highlight { get; set; } = [];
+    [Parameter] public Func<double, string> Format { get; set; } = v => v.ToString("0.0");
+    /// <summary>Lower is better (finish): 1 at the top.</summary>
+    [Parameter] public bool InvertY { get; set; }
+    [Parameter] public string Label { get; set; } = "";
+
+    private const double W = 720, H = 260, L = 48, R = 110, T = 14, B = 26;
+    private int? hover;
+    private double lo, hi;
+    private List<double> ticks = [];
+
+    private double Step => Seasons.Count <= 1 ? W - L - R : (W - L - R) / (Seasons.Count - 1);
+    private double X(int i) => Seasons.Count <= 1 ? (L + W - R) / 2 : L + i * Step;
+    private double Y(double v) => InvertY
+        ? T + (v - lo) / (hi - lo) * (H - T - B)
+        : T + (hi - v) / (hi - lo) * (H - T - B);
+
+    private int SlotOf(string id)
+    {
+        for (var i = 0; i < Highlight.Count; i++)
+            if (Highlight[i] == id) return i;
+        return -1;
+    }
+
+    protected override void OnParametersSet()
+    {
+        var values = Series.SelectMany(s => s.Values).OfType<double>().ToList();
+        if (values.Count == 0) { lo = 0; hi = 1; ticks = []; return; }
+
+        if (InvertY)
+        {
+            lo = 1;
+            hi = Math.Max(2, values.Max());
+            var step = Math.Max(1, Math.Ceiling((hi - lo) / 5));
+            ticks = [];
+            for (var t = lo; t <= hi; t += step) ticks.Add(t);
+        }
+        else
+        {
+            var min = values.Min();
+            var max = values.Max();
+            var step = Nice((max - min) / 4);
+            lo = Math.Floor(min / step) * step;
+            hi = Math.Ceiling(max / step) * step;
+            if (hi == lo) hi = lo + step;
+            ticks = [];
+            for (var t = lo; t <= hi + step / 2; t += step) ticks.Add(t);
+        }
+    }
+
+    private static double Nice(double x)
+    {
+        if (x <= 0) return 1;
+        var exp = Math.Pow(10, Math.Floor(Math.Log10(x)));
+        var f = x / exp;
+        return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * exp;
+    }
+
+    private string PathFor(ChartSeries s)
+    {
+        var sb = new System.Text.StringBuilder();
+        var pen = false;
+        for (var i = 0; i < s.Values.Count; i++)
+        {
+            if (s.Values[i] is not double v) { pen = false; continue; }
+            sb.Append(pen ? " L" : " M").Append(F(X(i))).Append(' ').Append(F(Y(v)));
+            pen = true;
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static int LastIndex(ChartSeries s)
+    {
+        for (var i = s.Values.Count - 1; i >= 0; i--)
+            if (s.Values[i] is not null) return i;
+        return -1;
+    }
+
+    /// <summary>End-of-line label position, pushed apart when the two highlighted lines end close together.</summary>
+    private double LabelY(ChartSeries s)
+    {
+        double EndY(ChartSeries x) => Y(x.Values[LastIndex(x)]!.Value);
+        var y = EndY(s);
+        var other = Series.FirstOrDefault(o => o.Id != s.Id && SlotOf(o.Id) >= 0 && LastIndex(o) >= 0);
+        if (other is null) return y;
+        var oy = EndY(other);
+        if (Math.Abs(y - oy) >= 16) return y;
+        var mid = (y + oy) / 2;
+        var above = y < oy || (y == oy && SlotOf(s.Id) == 0);
+        return above ? mid - 8 : mid + 8;
+    }
+
+    private static string Truncate(string name) => name.Length > 12 ? name[..11] + "." : name;
+
+    private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+}

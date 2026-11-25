@@ -1,0 +1,96 @@
+@page "/seasons"
+@page "/seasons/{Year:int}"
+
+<PageTitle>Seasons | Triple F Dynasty</PageTitle>
+
+<LeagueLoader Context="d">
+    @{
+        var season = d.Seasons.FirstOrDefault(s => s.Season == Year) ?? d.Seasons.Last();
+        var rows = LeagueStats.SeasonStandings(d, season);
+        var highs = LeagueStats.WeeklyHighs(d, season.Season);
+    }
+
+    <h1>@season.Season Season</h1>
+
+    <div class="tabs">
+        @foreach (var s in d.Seasons.AsEnumerable().Reverse())
+        {
+            <a class="tab @(s.Season == season.Season ? "active" : "")" href="seasons/@s.Season">@s.Season</a>
+        }
+    </div>
+
+    @if (season.ChampionId is not null)
+    {
+        <div class="banner">
+            <span class="trophy">🏆</span>
+            <OwnerTag Owner="d.OwnerOf(season.ChampionId)" />
+            <span class="muted">won the title@(season.RunnerUpId is null ? "" : $" over {d.OwnerOf(season.RunnerUpId).Name}")</span>
+        </div>
+    }
+    else if (!season.IsComplete)
+    {
+        <p class="sub">In progress. Showing results through week @season.WeeksLoaded.</p>
+    }
+
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th>Seed</th>
+                    <th class="left">Manager</th>
+                    <th>Record</th>
+                    <th>PF</th>
+                    <th>PA</th>
+                    <th>PPG</th>
+                    <th>Finish</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in rows)
+                {
+                    <tr class="@(r.MadePlayoffs ? "playoff" : "")">
+                        <td class="muted">@r.Seed</td>
+                        <td class="left"><OwnerTag Owner="r.Owner" /></td>
+                        <td class="mono">@r.Wins-@r.Losses@(r.Ties > 0 ? $"-{r.Ties}" : "")</td>
+                        <td class="mono">@r.PointsFor.ToString("N2")</td>
+                        <td class="mono">@r.PointsAgainst.ToString("N2")</td>
+                        <td class="mono">@(r.Games == 0 ? "0.00" : (r.PointsFor / r.Games).ToString("0.00"))</td>
+                        <td>@FinishLabel(r.Finish)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (highs.Count > 0)
+    {
+        <div class="card">
+            <h2>Weekly High Scores</h2>
+            <ol class="rank weeks">
+                @foreach (var g in highs)
+                {
+                    <li>
+                        <div class="rank-main">
+                            <span class="week-no">Wk @g.Week</span>
+                            <OwnerTag Owner="d.OwnerOf(g.OwnerId)" />
+                        </div>
+                        <span class="rank-val">@g.PointsFor.ToString("0.00")</span>
+                    </li>
+                }
+            </ol>
+        </div>
+    }
+</LeagueLoader>
+
+@code {
+    [Parameter] public int? Year { get; set; }
+
+    private static string FinishLabel(int? place) => place switch
+    {
+        1 => "🏆 Champion",
+        2 => "🥈 2nd",
+        3 => "🥉 3rd",
+        null => "",
+        _ => $"{place}th",
+    };
+}

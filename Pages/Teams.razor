@@ -1,0 +1,122 @@
+@page "/teams"
+
+<PageTitle>Teams | Triple F Dynasty</PageTitle>
+
+<LeagueLoader Context="d">
+    @{
+        trends ??= new TrendStats(d);
+        var t = trends;
+        selected ??= t.Managers.FirstOrDefault()?.Id;
+        var owner = selected is null ? null : d.OwnerOf(selected);
+        var allTime = LeagueStats.AllTime(d).FirstOrDefault(r => r.Owner.Id == selected);
+        var latestValue = t.Seasons.AsEnumerable().Reverse()
+            .Select(s => t.Value.TryGetValue((selected ?? "", s), out var v) ? v : null)
+            .FirstOrDefault(v => v is not null);
+        var valueRank = latestValue is null ? 0
+            : t.Value.Values.Where(v => v.Season == latestValue.Season).Count(v => v.Index > latestValue.Index) + 1;
+    }
+
+    <h1>Teams</h1>
+    <p class="sub">Each manager's best players at every position, by points scored in their starting lineup.</p>
+
+    <div class="picker">
+        @foreach (var m in t.Managers)
+        {
+            <button class="pick @(m.Id == selected ? "on" : "")" @onclick="() => selected = m.Id">
+                <OwnerTag Owner="m" />
+            </button>
+        }
+    </div>
+
+    @if (owner is not null)
+    {
+        <div class="team-hero card">
+            <div class="team-id">
+                @if (!string.IsNullOrEmpty(owner.Avatar))
+                {
+                    <img class="avatar big" src="https://sleepercdn.com/avatars/thumbs/@owner.Avatar" alt="" />
+                }
+                else
+                {
+                    <span class="avatar big initial">@owner.Name[..1].ToUpperInvariant()</span>
+                }
+                <div>
+                    <div class="team-name">@owner.Name</div>
+                    @if (!string.IsNullOrEmpty(owner.TeamName))
+                    {
+                        <div class="muted">@owner.TeamName</div>
+                    }
+                </div>
+            </div>
+            @if (allTime is not null)
+            {
+                <div class="team-stats">
+                    <div class="stat"><span class="stat-val">@allTime.Wins-@allTime.Losses</span><span class="stat-label">All-time record</span></div>
+                    <div class="stat"><span class="stat-val">@allTime.Titles</span><span class="stat-label">Titles</span></div>
+                    <div class="stat"><span class="stat-val">@allTime.PointsPerGame.ToString("0.0")</span><span class="stat-label">PPG</span></div>
+                    <div class="stat"><span class="stat-val">@(t.AverageFinish(owner.Id)?.ToString("0.0") ?? "-")</span><span class="stat-label">Avg finish</span></div>
+                    @if (latestValue is not null)
+                    {
+                        <div class="stat"><span class="stat-val">@latestValue.Index.ToString("0")</span><span class="stat-label">Team value (#@valueRank)</span></div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="tabs">
+            <button class="tab @(season is null ? "active" : "")" @onclick="() => season = null">All-Time</button>
+            @foreach (var s in t.Seasons.AsEnumerable().Reverse())
+            {
+                <button class="tab @(season == s ? "active" : "")" @onclick="() => season = s">@s</button>
+            }
+        </div>
+
+        <div class="positions">
+            @foreach (var (pos, leaders) in t.PositionLeaders(owner.Id, season))
+            {
+                <div class="card position-card">
+                    <h2><span class="pos pos-@pos">@pos</span> Top @pos</h2>
+                    <ol class="podium">
+                        @for (var i = 0; i < leaders.Count; i++)
+                        {
+                            var p = leaders[i];
+                            <li class="place-@(i + 1)">
+                                <span class="medal">@(i switch { 0 => "🥇", 1 => "🥈", _ => "🥉" })</span>
+                                <div class="rank-main">
+                                    <span class="player-name">@p.Player.Name</span>
+                                    <span class="rank-meta">@p.Starts starts &middot; @((p.Points / p.Starts).ToString("0.0")) per start</span>
+                                </div>
+                                <span class="rank-val">@p.Points.ToString("N1")</span>
+                            </li>
+                        }
+                    </ol>
+                </div>
+            }
+        </div>
+
+        @if (latestValue is not null)
+        {
+            <div class="card">
+                <h2>Most Valuable Assets <span class="section-note">@latestValue.Season@(t.InProgress.Contains(latestValue.Season) ? " (current)" : "")</span></h2>
+                <ol class="rank">
+                    @foreach (var a in latestValue.Assets)
+                    {
+                        <li>
+                            <div class="rank-main">
+                                <PlayerTag Player="a.Player" />
+                                <span class="rank-meta">@(a.Age is int age ? $"age {age}" : "age unknown") &middot; @a.Ppg.ToString("0.0") PPG</span>
+                            </div>
+                            <span class="rank-val">@a.Value.ToString("0.0")</span>
+                        </li>
+                    }
+                </ol>
+            </div>
+        }
+    }
+</LeagueLoader>
+
+@code {
+    private TrendStats? trends;
+    private string? selected;
+    private int? season;
+}

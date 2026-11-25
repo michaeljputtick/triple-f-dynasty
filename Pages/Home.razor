@@ -1,0 +1,112 @@
+@page "/"
+
+<PageTitle>Standings | Triple F Dynasty</PageTitle>
+
+<LeagueLoader Context="d">
+    @{
+        var rows = Sort(LeagueStats.AllTime(d));
+        var done = d.Seasons.Where(s => s.ChampionId is not null).ToList();
+    }
+
+    <h1>All-Time Standings</h1>
+    <p class="sub">@d.Seasons.First().Season to @d.Seasons.Last().Season, @d.Seasons.Count seasons. W-L and points are regular season only.</p>
+
+    <section class="champs">
+        @foreach (var s in done.AsEnumerable().Reverse())
+        {
+            <div class="champ-card">
+                <div class="champ-year">@s.Season</div>
+                <div class="trophy">🏆</div>
+                <OwnerTag Owner="d.OwnerOf(s.ChampionId!)" />
+                @if (s.RunnerUpId is not null)
+                {
+                    <div class="runner">def. @d.OwnerOf(s.RunnerUpId).Name</div>
+                }
+            </div>
+        }
+        @foreach (var s in d.Seasons.Where(s => !s.IsComplete))
+        {
+            <div class="champ-card pending">
+                <div class="champ-year">@s.Season</div>
+                <div class="trophy">⏳</div>
+                <div class="runner">In progress, through week @s.WeeksLoaded</div>
+            </div>
+        }
+    </section>
+
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th class="left">Manager</th>
+                    @SortHeader("Titles", "titles")
+                    @SortHeader("Record", "winpct")
+                    @SortHeader("Win %", "winpct")
+                    @SortHeader("PF", "pf")
+                    @SortHeader("PA", "pa")
+                    @SortHeader("PPG", "ppg")
+                    @SortHeader("Playoffs", "apps")
+                    @SortHeader("Playoff W-L", "pw")
+                    @SortHeader("Weekly Highs", "highs")
+                    @SortHeader("Seasons", "seasons")
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < rows.Count; i++)
+                {
+                    var r = rows[i];
+                    <tr>
+                        <td class="muted">@(i + 1)</td>
+                        <td class="left"><OwnerTag Owner="r.Owner" /></td>
+                        <td>@(r.Titles > 0 ? string.Concat(Enumerable.Repeat("🏆", r.Titles)) : "")@(r.RunnerUps > 0 ? $" ({r.RunnerUps}x RU)" : "")</td>
+                        <td class="mono">@r.Wins-@r.Losses@(r.Ties > 0 ? $"-{r.Ties}" : "")</td>
+                        <td class="mono">@r.WinPct.ToString("0.000")</td>
+                        <td class="mono">@r.PointsFor.ToString("N2")</td>
+                        <td class="mono">@r.PointsAgainst.ToString("N2")</td>
+                        <td class="mono">@r.PointsPerGame.ToString("0.00")</td>
+                        <td class="mono">@r.PlayoffApps</td>
+                        <td class="mono">@r.PlayoffWins-@r.PlayoffLosses</td>
+                        <td class="mono">@r.TopScoreWeeks</td>
+                        <td class="mono">@r.Seasons</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</LeagueLoader>
+
+@code {
+    private string sortKey = "default";
+    private bool desc = true;
+
+    private void SetSort(string key)
+    {
+        if (sortKey == key) desc = !desc;
+        else { sortKey = key; desc = true; }
+    }
+
+    private RenderFragment SortHeader(string label, string key) =>
+        @<th class="sortable @(sortKey == key ? "active" : "")" @onclick="() => SetSort(key)">
+            @label @(sortKey == key ? (desc ? "▾" : "▴") : "")
+        </th>;
+
+    private List<StandingRow> Sort(List<StandingRow> rows)
+    {
+        Func<StandingRow, double>? key = sortKey switch
+        {
+            "titles" => r => r.Titles * 100 + r.RunnerUps,
+            "winpct" => r => r.WinPct,
+            "pf" => r => r.PointsFor,
+            "pa" => r => r.PointsAgainst,
+            "ppg" => r => r.PointsPerGame,
+            "apps" => r => r.PlayoffApps,
+            "pw" => r => r.PlayoffWins,
+            "highs" => r => r.TopScoreWeeks,
+            "seasons" => r => r.Seasons,
+            _ => null,
+        };
+        if (key is null) return rows;
+        return (desc ? rows.OrderByDescending(key) : rows.OrderBy(key)).ToList();
+    }
+}

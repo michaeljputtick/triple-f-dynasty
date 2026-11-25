@@ -1,0 +1,33 @@
+@inject LeagueHistoryService History
+
+@if (error is not null)
+{
+    <div class="card error">
+        <strong>Couldn't load league data.</strong> @error
+        <button class="btn" @onclick="LoadAsync">Try again</button>
+    </div>
+}
+else if (data is null)
+{
+    <div class="loading"><span class="spinner"></span> Pulling league history from Sleeper...</div>
+}
+else
+{
+    @ChildContent(data)
+}
+
+@code {
+    [Parameter, EditorRequired] public RenderFragment<LeagueData> ChildContent { get; set; } = default!;
+
+    private LeagueData? data;
+    private string? error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        error = null;
+        try { data = await History.LoadAsync(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+}

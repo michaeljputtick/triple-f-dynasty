@@ -1,0 +1,26 @@
+@inherits LayoutComponentBase
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="">
+            <span class="logo">FFF</span>
+            <span class="brand-name">Triple F Dynasty</span>
+        </a>
+        <nav class="nav">
+            <NavLink href="" Match="NavLinkMatch.All">Standings</NavLink>
+            <NavLink href="records">Records</NavLink>
+            <NavLink href="hall">Hall of Greatness</NavLink>
+            <NavLink href="trends">Trends</NavLink>
+            <NavLink href="teams">Teams</NavLink>
+            <NavLink href="trades">Trades</NavLink>
+            <NavLink href="h2h">Head to Head</NavLink>
+            <NavLink href="seasons">Seasons</NavLink>
+        </nav>
+    </div>
+</header>
+
+<main class="page">
+    @Body
+</main>
+
+<footer class="foot">Data from the public Sleeper API. Regular season and playoff games count toward records; consolation and placement games don't.</footer>

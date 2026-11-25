@@ -1,0 +1,207 @@
+@page "/trades"
+@inject LeagueHistoryService History
+
+<PageTitle>Trades | Triple F Dynasty</PageTitle>
+
+<h1>Trade History</h1>
+<p class="sub">Every trade, what each side got, and how it played out. Value is starter points produced for the manager who received the player or drafted with the pick.</p>
+
+@if (error is not null)
+{
+    <div class="card error">
+        <strong>Couldn't load trades.</strong> @error
+        <button class="btn" @onclick="LoadAsync">Try again</button>
+    </div>
+}
+else if (trades is null || data is null)
+{
+    <div class="loading"><span class="spinner"></span> Pulling every trade and draft pick...</div>
+}
+else
+{
+    var managers = LeagueStats.AllTime(data).Select(r => r.Owner).ToList();
+
+    <div class="tabs">
+        <button class="tab @(view == "trades" ? "active" : "")" @onclick='() => view = "trades"'>Trades (@trades.Trades.Count)</button>
+        <button class="tab @(view == "picks" ? "active" : "")" @onclick='() => view = "picks"'>Pick Tracker (@trades.PickJourneys.Count)</button>
+    </div>
+
+    <div class="picker">
+        <button class="pick @(owner is null ? "on" : "")" @onclick="() => owner = null"><span class="owner-name">Everyone</span></button>
+        @foreach (var m in managers)
+        {
+            <button class="pick @(owner == m.Id ? "on" : "")" @onclick="() => owner = m.Id"><OwnerTag Owner="m" /></button>
+        }
+    </div>
+
+    @if (view == "trades")
+    {
+        var list = trades.Trades.Where(t => owner is null || t.Sides.Any(s => s.Owner.Id == owner)).ToList();
+        if (owner is not null)
+        {
+            var won = list.Count(t => t.Winner?.Owner.Id == owner);
+            var lost = list.Count(t => t.Winner is not null && t.Winner.Owner.Id != owner);
+            <p class="sub">@data.OwnerOf(owner).Name: @list.Count trades, won @won, lost @lost by points produced.</p>
+        }
+        @if (list.Count == 0)
+        {
+            <div class="card muted">No trades yet.</div>
+        }
+        <div class="trade-list">
+            @foreach (var t in list)
+            {
+                <article class="card trade">
+                    <header class="trade-head">
+                        <span class="trade-date">@t.Tx.Created.ToLocalTime().ToString("MMM d, yyyy")</span>
+                        <span class="muted">@t.Tx.Season @(t.Tx.Leg <= 1 ? "offseason / Wk 1" : $"Wk {t.Tx.Leg}")</span>
+                        @if (t.Winner is not null)
+                        {
+                            <span class="edge">Edge: @t.Winner.Owner.Name by @t.Edge.ToString("N0") pts</span>
+                        }
+                    </header>
+                    <div class="trade-sides">
+                        @foreach (var side in t.Sides)
+                        {
+                            <div class="trade-side @(t.Winner == side ? "won" : "")">
+                                <div class="side-head">
+                                    <OwnerTag Owner="side.Owner" />
+                                    <span class="side-val">@side.Value.ToString("N0") pts</span>
+                                </div>
+                                <div class="side-label">received</div>
+                                <ul class="assets">
+                                    @foreach (var p in side.Players)
+                                    {
+                                        <li>
+                                            <PlayerTag Player="p.Player" />
+                                            <span class="asset-meta">@p.Points.ToString("N0") pts in @p.Starts starts</span>
+                                        </li>
+                                    }
+                                    @foreach (var pk in side.Picks)
+                                    {
+                                        <li class="pick-asset">
+                                            <span class="pick-chip">@pk.Pick.Season R@(pk.Pick.Round)</span>
+                                            <span class="muted small">(@pk.OriginalOwner.Name's)</span>
+                                            @PickOutcomeText(pk.Outcome)
+                                        </li>
+                                    }
+                                    @if (side.FaabIn > 0)
+                                    {
+                                        <li><span class="pick-chip faab">$@side.FaabIn FAAB</span></li>
+                                    }
+                                    @if (side.Players.Count == 0 && side.Picks.Count == 0 && side.FaabIn == 0)
+                                    {
+                                        <li class="muted">nothing</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        var journeys = trades.PickJourneys
+            .Where(j => owner is null || j.OriginalOwner.Id == owner || j.Hops.Any(h => h.From.Id == owner || h.To.Id == owner))
+            .ToList();
+        <div class="table-wrap">
+            <table class="grid">
+                <thead>
+                    <tr>
+                        <th class="left">Pick</th>
+                        <th class="left">Path</th>
+                        <th class="left">Became</th>
+                        <th>Pts for Drafter</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var j in journeys)
+                    {
+                        <tr>
+                            <td class="left">
+                                <span class="pick-chip">@j.Season R@(j.Round)</span>
+                                @if (j.Drafted is not null)
+                                {
+                                    <span class="muted small"> #@j.Drafted.PickNo</span>
+                                }
+                            </td>
+                            <td class="left path">
+                                <span>@j.OriginalOwner.Name</span>
+                                @foreach (var hop in j.Hops)
+                                {
+                                    <span class="arrow" title="@hop.Tx.Created.ToLocalTime().ToString("MMM d, yyyy")">→</span>
+                                    <span>@hop.To.Name</span>
+                                }
+                            </td>
+                            <td class="left">
+                                @if (j.Player is not null)
+                                {
+                                    <PlayerTag Player="j.Player" />
+                                    <span class="muted small"> by @j.DraftedBy?.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="muted">@(j.Season > LatestDraft ? "Future pick" : "Not found in draft")</span>
+                                }
+                            </td>
+                            <td class="mono">@(j.Player is null ? "" : j.PointsForDrafter.ToString("N0"))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private LeagueData? data;
+    private TradeHistory? trades;
+    private string? error;
+    private string view = "trades";
+    private string? owner;
+    private int LatestDraft;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        error = null;
+        try
+        {
+            data = await History.LoadAsync();
+            var hall = await History.LoadHallAsync();
+            LatestDraft = hall.Picks.Count == 0 ? 0 : hall.Picks.Max(p => p.Season);
+            trades = await History.LoadTradesAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private RenderFragment PickOutcomeText(PickOutcome o) =>
+        @<span class="asset-meta">
+            @if (o.FlippedIn is not null)
+            {
+                <span>flipped to @o.FlippedTo?.Name on @o.FlippedIn.Created.ToLocalTime().ToString("MMM d, yyyy")</span>
+                @if (o.Player is not null)
+                {
+                    <span>, became @o.Player.Name</span>
+                }
+            }
+            else if (o.Player is not null)
+            {
+                <span>→ <strong>@o.Player.Name</strong> (#@o.Drafted!.PickNo)</span>
+                @if (o.Points > 0)
+                {
+                    <span>, @o.Points.ToString("N0") pts in @o.Starts starts</span>
+                }
+                else
+                {
+                    <span>, no starter points yet</span>
+                }
+            }
+            else
+            {
+                <span>not drafted yet</span>
+            }
+        </span>;
+}

@@ -1,0 +1,157 @@
+@page "/trends"
+
+<PageTitle>Trends | Triple F Dynasty</PageTitle>
+
+<LeagueLoader Context="d">
+    @{
+        trends ??= new TrendStats(d);
+        if (slots[0] is null && slots[1] is null && trends.Managers.Count > 0)
+            slots[0] = trends.Managers[0].Id;
+        var t = trends;
+    }
+
+    <h1>Trends</h1>
+    <p class="sub">Year over year for every manager. Pick up to two to highlight; everyone else stays gray for context.</p>
+
+    <div class="picker">
+        @foreach (var m in t.Managers)
+        {
+            var slot = Array.IndexOf(slots, m.Id);
+            <button class="pick @(slot >= 0 ? "on" : "")" @onclick="() => Toggle(m.Id)">
+                <span class="swatch @(slot >= 0 ? $"slot-{slot}" : "off")"></span>
+                <OwnerTag Owner="m" />
+            </button>
+        }
+    </div>
+
+    <div class="chart-grid">
+        <div class="card chart-card">
+            <h2>Points per Game</h2>
+            <p class="chart-note">Regular season</p>
+            <LineChart Seasons="t.Seasons" Highlight="slots" Label="Points per game by season"
+                       Series="SeriesFor(t, (id, s) => t.Ppg.TryGetValue((id, s), out var v) ? v : null)"
+                       Format='v => v.ToString("0.0")' />
+        </div>
+        <div class="card chart-card">
+            <h2>Finish</h2>
+            <p class="chart-note">Playoff placement, otherwise regular-season seed</p>
+            <LineChart Seasons="t.Seasons" Highlight="slots" Label="Finish by season" InvertY="true"
+                       Series="SeriesFor(t, (id, s) => t.Finish.TryGetValue((id, s), out var v) ? v : null)"
+                       Format="v => Ordinal((int)Math.Round(v))" />
+        </div>
+        <div class="card chart-card wide">
+            <h2>Team Value</h2>
+            <p class="chart-note">End-of-season dynasty value, league average = 100</p>
+            <LineChart Seasons="t.Seasons" Highlight="slots" Label="Team value index by season"
+                       Series="SeriesFor(t, (id, s) => t.Value.TryGetValue((id, s), out var v) ? v.Index : null)"
+                       Format='v => v.ToString("0")' />
+        </div>
+    </div>
+
+    <div class="table-head">
+        <h2 class="section">By Season</h2>
+        <div class="tabs compact">
+            <button class="tab @(metric == "ppg" ? "active" : "")" @onclick='() => metric = "ppg"'>PPG</button>
+            <button class="tab @(metric == "finish" ? "active" : "")" @onclick='() => metric = "finish"'>Finish</button>
+            <button class="tab @(metric == "value" ? "active" : "")" @onclick='() => metric = "value"'>Team Value</button>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="grid heat">
+            <thead>
+                <tr>
+                    <th class="left">Manager</th>
+                    @foreach (var s in t.Seasons)
+                    {
+                        <th>@s@(t.InProgress.Contains(s) ? "*" : "")</th>
+                    }
+                    <th>Avg</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var m in t.Managers)
+                {
+                    <tr>
+                        <td class="left"><OwnerTag Owner="m" /></td>
+                        @foreach (var s in t.Seasons)
+                        {
+                            var v = Cell(t, m.Id, s);
+                            <td class="mono" style="@Shade(t, s, v)">@(v is double x ? FormatMetric(x) : "")</td>
+                        }
+                        <td class="mono strong">@(Average(t, m.Id) is double a ? FormatMetric(a) : "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (t.InProgress.Count > 0)
+    {
+        <p class="footnote">* season in progress</p>
+    }
+
+    <details class="card explainer">
+        <summary>How team value works</summary>
+        <ol>
+            <li><strong>Production.</strong> Each player's points per game that season. Players with fewer than 6 games blend in the prior season, so an injury doesn't wipe out a stud's value.</li>
+            <li><strong>Replacement level.</strong> At each position, the PPG of the first player outside the league's startable pool (teams x lineup slots, with flex spots split RB 45%, WR 45%, TE 10%). Only points above that line count.</li>
+            <li><strong>Age curve.</strong> Value above replacement gets a dynasty age multiplier: RBs fade fast after 26, WRs hold into their late 20s, QBs last into their mid 30s. Players 24 and under also get a prospect bonus, so young talent counts before it produces.</li>
+            <li><strong>Depth weighting.</strong> Sort the roster by value; the top players (one starting lineup's worth) count fully, the next 6 count half, the rest count 15%. Kickers and defenses are worth 15%.</li>
+            <li><strong>Index.</strong> Team totals are scaled so the league average each season is 100.</li>
+        </ol>
+        <p class="muted">It's a production-and-age model, not market value. It doesn't know about draft capital or future picks.</p>
+    </details>
+</LeagueLoader>
+
+@code {
+    private TrendStats? trends;
+    private readonly string?[] slots = new string?[2];
+    private string metric = "ppg";
+
+    /// <summary>Clicking a highlighted manager clears their slot; otherwise fill an empty slot or replace the second.</summary>
+    private void Toggle(string id)
+    {
+        var existing = Array.IndexOf(slots, id);
+        if (existing >= 0) { slots[existing] = null; return; }
+        var empty = Array.IndexOf(slots, null);
+        slots[empty >= 0 ? empty : 1] = id;
+    }
+
+    private static List<LineChart.ChartSeries> SeriesFor(TrendStats t, Func<string, int, double?> get) =>
+        t.Managers.Select(m => new LineChart.ChartSeries(m.Id, m.Name, t.Seasons.Select(s => get(m.Id, s)).ToList())).ToList();
+
+    private double? Cell(TrendStats t, string id, int season) => metric switch
+    {
+        "finish" => t.Finish.TryGetValue((id, season), out var f) ? f : null,
+        "value" => t.Value.TryGetValue((id, season), out var v) ? v.Index : null,
+        _ => t.Ppg.TryGetValue((id, season), out var p) ? p : null,
+    };
+
+    private double? Average(TrendStats t, string id)
+    {
+        if (metric == "finish") return t.AverageFinish(id);
+        var values = t.Seasons.Select(s => Cell(t, id, s)).OfType<double>().ToList();
+        return values.Count == 0 ? null : values.Average();
+    }
+
+    private string FormatMetric(double v) => metric switch
+    {
+        "finish" => v == Math.Round(v) ? Ordinal((int)v) : v.ToString("0.0"),
+        "value" => v.ToString("0"),
+        _ => v.ToString("0.0"),
+    };
+
+    /// <summary>Single-hue heat shading, scaled within each season column. Darker = better.</summary>
+    private string Shade(TrendStats t, int season, double? value)
+    {
+        if (value is not double v) return "";
+        var column = t.Managers.Select(m => Cell(t, m.Id, season)).OfType<double>().ToList();
+        double min = column.Min(), max = column.Max();
+        if (max == min) return "";
+        var good = (v - min) / (max - min);
+        if (metric == "finish") good = 1 - good;
+        var alpha = (0.06 + 0.5 * good).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        return $"background: rgba(57, 135, 229, {alpha});";
+    }
+
+    private static string Ordinal(int n) => n + (n % 100 is 11 or 12 or 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" });
+}

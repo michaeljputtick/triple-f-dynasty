@@ -1,0 +1,117 @@
+@page "/records"
+
+<PageTitle>Records | Triple F Dynasty</PageTitle>
+
+<LeagueLoader Context="d">
+    @{
+        var games = LeagueStats.Meaningful(d).ToList();
+        var seasons = LeagueStats.SeasonTotals(d);
+    }
+
+    <h1>Record Book</h1>
+    <p class="sub">Regular season and playoff games across every season.</p>
+
+    <div class="records">
+        <div class="card">
+            <h2>Highest Scores</h2>
+            @GameList(d, games.OrderByDescending(g => g.PointsFor), g => g.PointsFor.ToString("0.00"))
+        </div>
+
+        <div class="card">
+            <h2>Lowest Scores</h2>
+            @GameList(d, games.Where(g => g.PointsFor > 0).OrderBy(g => g.PointsFor), g => g.PointsFor.ToString("0.00"))
+        </div>
+
+        <div class="card">
+            <h2>Biggest Blowouts</h2>
+            @GameList(d, games.Where(g => g.Won).OrderByDescending(g => g.Margin), g => $"+{g.Margin:0.00}")
+        </div>
+
+        <div class="card">
+            <h2>Closest Games</h2>
+            @GameList(d, games.Where(g => g.Won).OrderBy(g => g.Margin), g => $"+{g.Margin:0.00}")
+        </div>
+
+        <div class="card">
+            <h2>Most Points in a Loss</h2>
+            @GameList(d, games.Where(g => g.Lost).OrderByDescending(g => g.PointsFor), g => g.PointsFor.ToString("0.00"))
+        </div>
+
+        <div class="card">
+            <h2>Fewest Points in a Win</h2>
+            @GameList(d, games.Where(g => g.Won).OrderBy(g => g.PointsFor), g => g.PointsFor.ToString("0.00"))
+        </div>
+
+        <div class="card">
+            <h2>Highest Combined Score</h2>
+            @GameList(d, games.Where(g => g.Won || (g.Tied && string.CompareOrdinal(g.OwnerId, g.OpponentId) < 0))
+                .OrderByDescending(g => g.PointsFor + g.PointsAgainst), g => (g.PointsFor + g.PointsAgainst).ToString("0.00"))
+        </div>
+
+        <div class="card">
+            <h2>Most Points, Season</h2>
+            @SeasonList(seasons.OrderByDescending(s => s.PointsFor))
+        </div>
+
+        <div class="card">
+            <h2>Fewest Points, Season</h2>
+            @SeasonList(seasons.Where(s => !s.InProgress).OrderBy(s => s.PointsFor))
+        </div>
+
+        <div class="card">
+            <h2>Longest Win Streaks</h2>
+            @StreakList(LeagueStats.Streaks(d, g => g.Won))
+        </div>
+
+        <div class="card">
+            <h2>Longest Losing Streaks</h2>
+            @StreakList(LeagueStats.Streaks(d, g => g.Lost))
+        </div>
+    </div>
+</LeagueLoader>
+
+@code {
+    private const int Top = 10;
+
+    private RenderFragment GameList(LeagueData d, IEnumerable<TeamGame> games, Func<TeamGame, string> value) =>
+        @<ol class="rank">
+            @foreach (var g in games.Take(Top))
+            {
+                <li>
+                    <div class="rank-main">
+                        <OwnerTag Owner="d.OwnerOf(g.OwnerId)" />
+                        <span class="rank-meta">@(g.Won ? "beat" : g.Lost ? "lost to" : "tied") @d.OwnerOf(g.OpponentId).Name, @g.PointsFor.ToString("0.00") to @g.PointsAgainst.ToString("0.00") &middot; @g.Label</span>
+                    </div>
+                    <span class="rank-val">@value(g)</span>
+                </li>
+            }
+        </ol>;
+
+    private RenderFragment SeasonList(IEnumerable<SeasonTotal> rows) =>
+        @<ol class="rank">
+            @foreach (var s in rows.Take(Top))
+            {
+                <li>
+                    <div class="rank-main">
+                        <OwnerTag Owner="s.Owner" />
+                        <span class="rank-meta">@s.Season, went @s.Wins-@s.Losses@(s.Ties > 0 ? $"-{s.Ties}" : "")@(s.InProgress ? " (in progress)" : "")</span>
+                    </div>
+                    <span class="rank-val">@s.PointsFor.ToString("N2")</span>
+                </li>
+            }
+        </ol>;
+
+    private RenderFragment StreakList(List<Streak> streaks) =>
+        @<ol class="rank">
+            @foreach (var s in streaks.Take(Top))
+            {
+                <li>
+                    <div class="rank-main">
+                        <OwnerTag Owner="s.Owner" />
+                        <span class="rank-meta">@s.First.Label to @s.Last.Label</span>
+                    </div>
+                    <span class="rank-val">@s.Length</span>
+                </li>
+            }
+        </ol>;
+}

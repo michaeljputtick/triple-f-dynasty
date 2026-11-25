@@ -1,0 +1,11 @@
+<span class="player">
+    @if (!string.IsNullOrEmpty(Player.Position))
+    {
+        <span class="pos pos-@Player.Position">@Player.Position</span>
+    }
+    <span class="player-name">@Player.Name</span>
+</span>
+
+@code {
+    [Parameter, EditorRequired] public PlayerInfo Player { get; set; } = default!;
+}

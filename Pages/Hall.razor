@@ -1,0 +1,437 @@
+@page "/hall"
+@inject LeagueHistoryService History
+
+<PageTitle>Hall of Greatness | Triple F Dynasty</PageTitle>
+
+<h1>Hall of Greatness</h1>
+<p class="sub">Lineup calls, draft hauls, FAAB habits, and roster lore across every season.</p>
+
+@if (error is not null)
+{
+    <div class="card error">
+        <strong>Couldn't load the hall.</strong> @error
+        <button class="btn" @onclick="LoadAsync">Try again</button>
+    </div>
+}
+else if (stats is null || data is null)
+{
+    <div class="loading"><span class="spinner"></span> Digging through every trade, waiver claim, and draft pick...</div>
+}
+else
+{
+    var bestMgr = stats.Lineups.Where(l => l.Games >= 10).MaxBy(l => l.Efficiency);
+    var worstMgr = stats.Lineups.Where(l => l.Games >= 10).MinBy(l => l.Efficiency);
+    var drafter = stats.Drafters(_ => true).FirstOrDefault();
+    var whale = stats.Faab.FirstOrDefault();
+    var pincher = stats.Faab.LastOrDefault();
+    var benchKing = stats.Lineups.MaxBy(l => l.BenchPoints);
+
+    <section class="awards">
+        @if (bestMgr is not null)
+        {
+            @Award("🧠", "Best Manager", @<OwnerTag Owner="bestMgr.Owner" />, $"{bestMgr.Efficiency:P1} of max possible points")
+        }
+        @if (worstMgr is not null)
+        {
+            @Award("🤡", "Worst Manager", @<OwnerTag Owner="worstMgr.Owner" />, $"{worstMgr.Efficiency:P1} lineup efficiency")
+        }
+        @if (drafter is not null)
+        {
+            @Award("🎯", "Best Drafter", @<OwnerTag Owner="drafter.Owner" />, $"{drafter.StarterPoints:N0} starter pts from own picks")
+        }
+        @if (whale is not null)
+        {
+            @Award("🐋", "FAAB Whale", @<OwnerTag Owner="whale.Owner" />, $"${whale.Total:N0} spent all-time")
+        }
+        @if (pincher is not null)
+        {
+            @Award("🪙", "Penny Pincher", @<OwnerTag Owner="pincher.Owner" />, $"${pincher.Total:N0} spent all-time")
+        }
+        @if (benchKing is not null)
+        {
+            @Award("🪑", "Bench Hoarder", @<OwnerTag Owner="benchKing.Owner" />, $"{benchKing.BenchPoints:N0} pts left on the bench")
+        }
+        @if (stats.MostTraded.FirstOrDefault() is { } traded)
+        {
+            @Award("🔁", "Most Traded Player", @<PlayerTag Player="traded.Player" />, $"traded {traded.Count} times")
+        }
+        @if (stats.MostCut.FirstOrDefault() is { } cut)
+        {
+            @Award("✂️", "Most Cut Player", @<PlayerTag Player="cut.Player" />, $"dropped {cut.Count} times")
+        }
+        @if (stats.Boomerangs.FirstOrDefault() is { } boom)
+        {
+            @Award("🪃", "Boomerang", @<PlayerTag Player="boom.Player" />, $"{boom.Stints.Count} stints with {boom.Owner.Name}")
+        }
+    </section>
+
+    <h2 class="section">Front Office <span class="section-note">Actual lineup vs. best possible lineup from the same roster</span></h2>
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th class="left">Manager</th>
+                    <th>Efficiency</th>
+                    <th>Actual Pts</th>
+                    <th>Max Pts</th>
+                    <th>Left on Bench</th>
+                    <th>Record</th>
+                    <th>Best-Lineup Record</th>
+                    <th title="Losses that the best lineup would have won">Self-Inflicted L's</th>
+                    <th>Perfect Weeks</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in stats.Lineups)
+                {
+                    <tr>
+                        <td class="left"><OwnerTag Owner="r.Owner" /></td>
+                        <td>
+                            <div class="meter"><span style="width:@((r.Efficiency * 100).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))%"></span></div>
+                            <span class="mono">@r.Efficiency.ToString("P1")</span>
+                        </td>
+                        <td class="mono">@r.Actual.ToString("N0")</td>
+                        <td class="mono">@r.Optimal.ToString("N0")</td>
+                        <td class="mono">@r.BenchPoints.ToString("N0")</td>
+                        <td class="mono">@r.Wins-@r.Losses</td>
+                        <td class="mono">@r.OptimalWins-@r.OptimalLosses <span class="delta @(r.OptimalWins - r.Wins > 0 ? "neg" : "")">(@((r.OptimalWins - r.Wins).ToString("+0;-0;0")))</span></td>
+                        <td class="mono">@r.LineupLosses</td>
+                        <td class="mono">@r.PerfectWeeks</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="records">
+        <div class="card">
+            <h2>Most Points Left on Bench</h2>
+            <ol class="rank">
+                @foreach (var b in stats.WorstBenchWeeks)
+                {
+                    <li>
+                        <div class="rank-main">
+                            <OwnerTag Owner="b.Owner" />
+                            <span class="rank-meta">scored @b.Game.PointsFor.ToString("0.00") of a possible @b.Optimal.ToString("0.00") &middot; @b.Game.Label</span>
+                        </div>
+                        <span class="rank-val">@b.Left.ToString("0.00")</span>
+                    </li>
+                }
+            </ol>
+        </div>
+        <div class="card">
+            <h2>Coulda Won</h2>
+            <ol class="rank">
+                @foreach (var b in stats.CouldaWon)
+                {
+                    <li>
+                        <div class="rank-main">
+                            <OwnerTag Owner="b.Owner" />
+                            <span class="rank-meta">lost @b.Game.PointsFor.ToString("0.00") to @b.Game.PointsAgainst.ToString("0.00") vs @data.OwnerOf(b.Game.OpponentId).Name, best lineup had @b.Optimal.ToString("0.00") &middot; @b.Game.Label</span>
+                        </div>
+                        <span class="rank-val">+@((b.Optimal - b.Game.PointsAgainst).ToString("0.00"))</span>
+                    </li>
+                }
+            </ol>
+        </div>
+    </div>
+
+    <h2 class="section">Draft Room <span class="section-note">Starter points each pick produced for the manager who drafted him</span></h2>
+    <div class="tabs">
+        <button class="tab @(draftTab == "all" ? "active" : "")" @onclick='() => draftTab = "all"'>All Drafts</button>
+        <button class="tab @(draftTab == "rookie" ? "active" : "")" @onclick='() => draftTab = "rookie"'>Rookie Drafts</button>
+        <button class="tab @(draftTab == "startup" ? "active" : "")" @onclick='() => draftTab = "startup"'>Startup Draft</button>
+    </div>
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th class="left">Manager</th>
+                    <th>Picks</th>
+                    <th>Starter Pts for Them</th>
+                    <th>Pts / Pick</th>
+                    <th title="Everything their picks scored on any roster in the league">League-Wide Pts</th>
+                    <th class="left">Best Pick</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in stats.Drafters(DraftFilter))
+                {
+                    <tr>
+                        <td class="left"><OwnerTag Owner="r.Owner" /></td>
+                        <td class="mono">@r.Picks</td>
+                        <td class="mono">@r.StarterPoints.ToString("N0")</td>
+                        <td class="mono">@r.PerPick.ToString("N1")</td>
+                        <td class="mono">@r.LeaguePoints.ToString("N0")</td>
+                        <td class="left">
+                            @if (r.BestPick is not null)
+                            {
+                                <PlayerTag Player="r.BestPick.Player" />
+                                <span class="muted small"> @r.BestPick.Pick.Season R@(r.BestPick.Pick.Round), #@r.BestPick.Pick.PickNo</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="records">
+        <div class="card">
+            <h2>Draft Steals</h2>
+            @PickList(stats.Steals(DraftFilter))
+        </div>
+        <div class="card">
+            <h2>First-Round Busts</h2>
+            @PickList(stats.Busts(DraftFilter))
+        </div>
+    </div>
+
+    <h2 class="section">Waiver Wire</h2>
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th class="left">Manager</th>
+                    <th>FAAB Spent</th>
+                    <th>Per Season</th>
+                    <th>Waiver Claims</th>
+                    <th>Biggest Bid</th>
+                    <th>Total Adds</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var f in stats.Faab)
+                {
+                    <tr>
+                        <td class="left"><OwnerTag Owner="f.Owner" /></td>
+                        <td class="mono">$@f.Total.ToString("N0")</td>
+                        <td class="mono">$@f.PerSeason.ToString("N0")</td>
+                        <td class="mono">@f.Claims</td>
+                        <td class="mono">$@f.BiggestBid</td>
+                        <td class="mono">@(stats.MostMoves.FirstOrDefault(m => m.Owner.Id == f.Owner.Id)?.Count ?? 0)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="records">
+        <div class="card">
+            <h2>Biggest FAAB Bids</h2>
+            @PickupList(stats.BiggestBids)
+        </div>
+        <div class="card">
+            <h2>Best Pickups</h2>
+            @PickupList(stats.BestPickups)
+        </div>
+        <div class="card">
+            <h2>FAAB Regrets</h2>
+            @PickupList(stats.FaabRegrets)
+        </div>
+        <div class="card">
+            <h2>Most Added Players</h2>
+            @PlayerCountList(stats.MostAdded, "adds")
+        </div>
+        <div class="card">
+            <h2>Most Cut Players</h2>
+            @PlayerCountList(stats.MostCut, "cuts")
+        </div>
+    </div>
+
+    <h2 class="section">Trade Desk</h2>
+    <div class="records">
+        <div class="card">
+            <h2>Most Traded Players</h2>
+            @PlayerCountList(stats.MostTraded, "trades")
+        </div>
+        <div class="card">
+            <h2>Trade Barons</h2>
+            <ol class="rank">
+                @foreach (var o in stats.MostTrades.Take(10))
+                {
+                    <li><div class="rank-main"><OwnerTag Owner="o.Owner" /></div><span class="rank-val">@o.Count</span></li>
+                }
+            </ol>
+        </div>
+        <div class="card">
+            <h2>Favorite Trade Partners</h2>
+            <ol class="rank">
+                @foreach (var p in stats.TradePartners)
+                {
+                    <li>
+                        <div class="rank-main pair"><OwnerTag Owner="p.A" /><span class="vs">&amp;</span><OwnerTag Owner="p.B" /></div>
+                        <span class="rank-val">@p.Count</span>
+                    </li>
+                }
+            </ol>
+        </div>
+    </div>
+
+    <h2 class="section">Roster Lore</h2>
+    <div class="records">
+        <div class="card">
+            <h2>Boomerangs</h2>
+            <ol class="rank">
+                @foreach (var b in stats.Boomerangs)
+                {
+                    <li>
+                        <div class="rank-main">
+                            <span><PlayerTag Player="b.Player" /> <span class="muted small">with @b.Owner.Name</span></span>
+                            <span class="chips">
+                                @foreach (var s in b.Stints)
+                                {
+                                    <span class="chip">@stats.StintLabel(s)</span>
+                                }
+                            </span>
+                        </div>
+                        <span class="rank-val">@b.Stints.Count</span>
+                    </li>
+                }
+            </ol>
+        </div>
+        <div class="card">
+            <h2>Longest Tenure</h2>
+            <ol class="rank">
+                @foreach (var s in stats.LongestTenures)
+                {
+                    <li>
+                        <div class="rank-main">
+                            <span><PlayerTag Player="data.PlayerOf(s.PlayerId)" /> <span class="muted small">with @data.OwnerOf(s.OwnerId).Name</span></span>
+                            <span class="rank-meta">@stats.StintLabel(s), @s.Starts starts</span>
+                        </div>
+                        <span class="rank-val">@s.Weeks wks</span>
+                    </li>
+                }
+            </ol>
+        </div>
+        <div class="card">
+            <h2>Journeymen</h2>
+            <ol class="rank">
+                @foreach (var j in stats.Journeymen)
+                {
+                    <li>
+                        <div class="rank-main">
+                            <PlayerTag Player="j.Player" />
+                            <span class="rank-meta">@string.Join(" → ", j.Owners.Select(o => o.Name))</span>
+                        </div>
+                        <span class="rank-val">@j.Owners.Count teams</span>
+                    </li>
+                }
+            </ol>
+        </div>
+        <div class="card">
+            <h2>Ride or Die</h2>
+            <ol class="rank">
+                @foreach (var l in stats.MostLoyal)
+                {
+                    <li>
+                        <div class="rank-main">
+                            <span><PlayerTag Player="l.Player" /> <span class="muted small">for @l.Owner.Name</span></span>
+                            <span class="rank-meta">@l.Points.ToString("N0") pts as a starter</span>
+                        </div>
+                        <span class="rank-val">@l.Starts starts</span>
+                    </li>
+                }
+            </ol>
+        </div>
+    </div>
+
+    <h2 class="section">Box Score Oddities</h2>
+    <div class="records">
+        <div class="card">
+            <h2>Biggest Single-Player Weeks</h2>
+            @PlayerWeekList(stats.BestStarterWeeks)
+        </div>
+        <div class="card">
+            <h2>Bench Bombs</h2>
+            @PlayerWeekList(stats.BenchBombs)
+        </div>
+    </div>
+}
+
+@code {
+    private LeagueData? data;
+    private HallStats? stats;
+    private string? error;
+    private string draftTab = "all";
+
+    private Func<DraftPick, bool> DraftFilter => draftTab switch
+    {
+        "startup" => p => p.IsStartup,
+        "rookie" => p => !p.IsStartup,
+        _ => _ => true,
+    };
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        error = null;
+        try
+        {
+            data = await History.LoadAsync();
+            stats = await History.LoadHallStatsAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private static RenderFragment Award(string icon, string title, RenderFragment winner, string stat) =>
+        @<div class="award">
+            <div class="award-icon">@icon</div>
+            <div class="award-title">@title</div>
+            <div class="award-winner">@winner</div>
+            <div class="award-stat">@stat</div>
+        </div>;
+
+    private RenderFragment PickList(List<PickValue> picks) =>
+        @<ol class="rank">
+            @foreach (var p in picks)
+            {
+                <li>
+                    <div class="rank-main">
+                        <span><PlayerTag Player="p.Player" /> <span class="muted small">by @p.Owner.Name</span></span>
+                        <span class="rank-meta">@p.Pick.Season @(p.Pick.IsStartup ? "startup" : "rookie") draft, round @p.Pick.Round, pick #@p.Pick.PickNo &middot; @p.StarterPoints.ToString("N0") starter pts for drafter</span>
+                    </div>
+                    <span class="rank-val">@p.LeaguePoints.ToString("N0")</span>
+                </li>
+            }
+        </ol>;
+
+    private static RenderFragment PickupList(List<Pickup> pickups) =>
+        @<ol class="rank">
+            @foreach (var p in pickups)
+            {
+                <li>
+                    <div class="rank-main">
+                        <span><PlayerTag Player="p.Player" /> <span class="muted small">by @p.Owner.Name</span></span>
+                        <span class="rank-meta">@(p.Tx.Bid > 0 ? $"${p.Tx.Bid} bid" : p.Tx.Type == "waiver" ? "$0 waiver" : "free agent") &middot; @p.Tx.Season Wk @p.Tx.Leg &middot; @p.Starts starts</span>
+                    </div>
+                    <span class="rank-val">@p.StarterPoints.ToString("N0") pts</span>
+                </li>
+            }
+        </ol>;
+
+    private static RenderFragment PlayerCountList(List<PlayerCount> rows, string unit) =>
+        @<ol class="rank">
+            @foreach (var p in rows)
+            {
+                <li>
+                    <div class="rank-main"><PlayerTag Player="p.Player" /></div>
+                    <span class="rank-val">@p.Count <span class="unit">@unit</span></span>
+                </li>
+            }
+        </ol>;
+
+    private static RenderFragment PlayerWeekList(List<PlayerWeek> rows) =>
+        @<ol class="rank">
+            @foreach (var w in rows)
+            {
+                <li>
+                    <div class="rank-main">
+                        <span><PlayerTag Player="w.Player" /> <span class="muted small">for @w.Owner.Name</span></span>
+                        <span class="rank-meta">@w.Season Wk @w.Week</span>
+                    </div>
+                    <span class="rank-val">@w.Points.ToString("0.00")</span>
+                </li>
+            }
+        </ol>;
+}

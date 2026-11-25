@@ -1,0 +1,91 @@
+@page "/h2h"
+
+<PageTitle>Head to Head | Triple F Dynasty</PageTitle>
+
+<LeagueLoader Context="d">
+    @{
+        var owners = LeagueStats.AllTime(d).Select(r => r.Owner).ToList();
+    }
+
+    <h1>Head to Head</h1>
+    <p class="sub">Row manager's record against the column manager, regular season and playoffs. Click a cell for the games.</p>
+
+    <div class="table-wrap">
+        <table class="grid h2h">
+            <thead>
+                <tr>
+                    <th></th>
+                    @foreach (var o in owners)
+                    {
+                        <th class="h2h-col" title="@o.Name">@o.Name</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in owners)
+                {
+                    <tr>
+                        <th class="left"><OwnerTag Owner="row" /></th>
+                        @foreach (var col in owners)
+                        {
+                            if (row.Id == col.Id)
+                            {
+                                <td class="self"></td>
+                                continue;
+                            }
+                            var rec = LeagueStats.HeadToHead(d, row.Id, col.Id);
+                            var selected = selA == row.Id && selB == col.Id;
+                            <td class="h2h-cell @(selected ? "selected" : "")" style="@CellStyle(rec)" @onclick="() => Select(row.Id, col.Id)">
+                                @(rec.Games == 0 ? "-" : $"{rec.Wins}-{rec.Losses}{(rec.Ties > 0 ? $"-{rec.Ties}" : "")}")
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (selA is not null && selB is not null)
+    {
+        var a = d.OwnerOf(selA);
+        var b = d.OwnerOf(selB);
+        var games = LeagueStats.Meaningful(d)
+            .Where(g => g.OwnerId == selA && g.OpponentId == selB)
+            .OrderByDescending(g => g.Season).ThenByDescending(g => g.Week)
+            .ToList();
+        var rec = LeagueStats.HeadToHead(d, selA, selB);
+
+        <div class="card matchup">
+            <h2><OwnerTag Owner="a" /> <span class="vs">vs</span> <OwnerTag Owner="b" /></h2>
+            <p class="sub">
+                @rec.Wins-@rec.Losses@(rec.Ties > 0 ? $"-{rec.Ties}" : "")
+                &middot; avg @(games.Count == 0 ? "0" : games.Average(g => g.PointsFor).ToString("0.00")) to @(games.Count == 0 ? "0" : games.Average(g => g.PointsAgainst).ToString("0.00"))
+            </p>
+            <ul class="game-log">
+                @foreach (var g in games)
+                {
+                    <li class="@(g.Won ? "w" : g.Lost ? "l" : "t")">
+                        <span class="badge">@(g.Won ? "W" : g.Lost ? "L" : "T")</span>
+                        <span class="mono">@g.PointsFor.ToString("0.00") to @g.PointsAgainst.ToString("0.00")</span>
+                        <span class="muted">@g.Label</span>
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+</LeagueLoader>
+
+@code {
+    private string? selA, selB;
+
+    private void Select(string a, string b) => (selA, selB) = (a, b);
+
+    private static string CellStyle(H2HRecord rec)
+    {
+        if (rec.Games == 0) return "";
+        // Green when winning the series, red when losing, stronger color the more lopsided.
+        var t = Math.Abs(rec.WinPct - 0.5) * 2;
+        var hue = rec.WinPct >= 0.5 ? 140 : 0;
+        return rec.WinPct == 0.5 ? "" : $"background: hsla({hue}, 65%, 45%, {0.12 + 0.5 * t:0.00});";
+    }
+}

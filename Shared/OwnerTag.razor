@@ -1,0 +1,17 @@
+<span class="owner" title="@Owner.TeamName">
+    @if (!string.IsNullOrEmpty(Owner.Avatar))
+    {
+        <img class="avatar" src="https://sleepercdn.com/avatars/thumbs/@Owner.Avatar" alt="" loading="lazy" />
+    }
+    else
+    {
+        <span class="avatar initial">@Initial</span>
+    }
+    <span class="owner-name">@Owner.Name</span>
+</span>
+
+@code {
+    [Parameter, EditorRequired] public Owner Owner { get; set; } = default!;
+
+    private string Initial => string.IsNullOrEmpty(Owner.Name) ? "?" : Owner.Name[..1].ToUpperInvariant();
+}
