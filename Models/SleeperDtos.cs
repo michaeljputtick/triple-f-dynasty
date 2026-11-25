@@ -94,6 +94,7 @@ public class SleeperDraft
 {
     public string DraftId { get; set; } = "";
     public string Status { get; set; } = "";
+    public long? StartTime { get; set; } // epoch ms
     public SleeperDraftSettings? Settings { get; set; }
     public Dictionary<string, int?>? SlotToRosterId { get; set; } // only on draft/{id}, not the league's draft list
 }

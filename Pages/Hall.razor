@@ -60,7 +60,7 @@ else
         {
             @Award("✂️", "Most Cut Player", @<PlayerTag Player="cut.Player" />, $"dropped {cut.Count} times")
         }
-        @if (stats.Boomerangs.FirstOrDefault(b => Shows(b.Owner.Id)) is { } boom)
+        @if (stats.Lore(stintMode).Boomerangs.FirstOrDefault(b => Shows(b.Owner.Id)) is { } boom)
         {
             @Award("🪃", "Boomerang", @<PlayerTag Player="boom.Player" />, $"{boom.Stints.Count} stints with {boom.Owner.Name}")
         }
@@ -267,12 +267,16 @@ else
         </div>
     </div>
 
-    <h2 class="section">Roster Lore</h2>
+    <h2 class="section">Roster Lore <span class="section-note">@(stintMode == StintMode.AllMoves ? "Every draft pick, add, drop, and trade, offseason included" : "Only weeks a player sat on a roster during the season")</span></h2>
+    <div class="tabs">
+        <button class="tab @(stintMode == StintMode.AllMoves ? "active" : "")" @onclick="() => stintMode = StintMode.AllMoves">All moves</button>
+        <button class="tab @(stintMode == StintMode.GameWeeks ? "active" : "")" @onclick="() => stintMode = StintMode.GameWeeks">Game weeks only</button>
+    </div>
     <div class="records">
         <div class="card">
             <h2>Boomerangs</h2>
             <ol class="rank">
-                @foreach (var b in stats.Boomerangs.Where(b => Shows(b.Owner.Id)).Take(10))
+                @foreach (var b in stats.Lore(stintMode).Boomerangs.Where(b => Shows(b.Owner.Id)).Take(10))
                 {
                     <li>
                         <div class="rank-main">
@@ -280,7 +284,7 @@ else
                             <span class="chips">
                                 @foreach (var s in b.Stints)
                                 {
-                                    <span class="chip">@stats.StintLabel(s)</span>
+                                    <span class="chip" title="@s.Detail">@s.Label</span>
                                 }
                             </span>
                         </div>
@@ -292,14 +296,14 @@ else
         <div class="card">
             <h2>Longest Tenure</h2>
             <ol class="rank">
-                @foreach (var s in stats.LongestTenures.Where(s => Shows(s.OwnerId)).Take(10))
+                @foreach (var s in stats.Lore(stintMode).LongestTenures.Where(s => Shows(s.OwnerId)).Take(10))
                 {
                     <li>
                         <div class="rank-main">
                             <span><PlayerTag Player="data.PlayerOf(s.PlayerId)" /> <span class="muted small">with @data.OwnerOf(s.OwnerId).Name</span></span>
-                            <span class="rank-meta">@stats.StintLabel(s), @s.Starts starts</span>
+                            <span class="rank-meta" title="@s.Detail">@s.Label, @s.Starts starts</span>
                         </div>
-                        <span class="rank-val">@s.Weeks wks</span>
+                        <span class="rank-val">@s.LengthLabel</span>
                     </li>
                 }
             </ol>
@@ -307,7 +311,7 @@ else
         <div class="card">
             <h2>Journeymen</h2>
             <ol class="rank">
-                @foreach (var j in stats.Journeymen)
+                @foreach (var j in stats.Lore(stintMode).Journeymen)
                 {
                     <li>
                         <div class="rank-main">
@@ -354,6 +358,7 @@ else
     private HallStats? stats;
     private string? error;
     private string draftTab = "all";
+    private StintMode stintMode = StintMode.AllMoves;
 
     private bool Shows(string ownerId) => data is null || Settings.Shows(data, ownerId);
 

@@ -213,6 +213,7 @@ public class LeagueHistoryService(SleeperClient sleeper, PlayerDirectory playerD
                     hall.Picks.Add(new DraftPick(season, rounds > 8, p.Round, p.PickNo, rounds, p.PlayerId, owner)
                     {
                         OriginalRosterId = slots.GetValueOrDefault(p.DraftSlot.ToString()) ?? p.RosterId,
+                        DraftedAt = draft.StartTime is long ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null,
                     });
 
                     if (!data.Players.ContainsKey(p.PlayerId) && p.Metadata is not null)

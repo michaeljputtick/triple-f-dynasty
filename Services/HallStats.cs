@@ -8,7 +8,15 @@ public record Stint(string PlayerId, string OwnerId, int StartIdx, int EndIdx, i
     public int Weeks => EndIdx - StartIdx + 1;
 }
 
-public record Boomerang(PlayerInfo Player, Owner Owner, IReadOnlyList<Stint> Stints);
+/// <summary>How stints are counted: every roster move (offseason included) or only game weeks on the roster.</summary>
+public enum StintMode { AllMoves, GameWeeks }
+
+/// <summary>A stint ready for display, from either counting mode.</summary>
+public record StintView(string PlayerId, string OwnerId, string Label, string? Detail, double Length, string LengthLabel, int Starts, double Points, DateTimeOffset? Start, int Order);
+
+public record Boomerang(PlayerInfo Player, Owner Owner, IReadOnlyList<StintView> Stints);
+
+public record RosterLore(List<Boomerang> Boomerangs, List<StintView> LongestTenures, List<Journeyman> Journeymen);
 public record PlayerCount(PlayerInfo Player, int Count);
 public record OwnerCount(Owner Owner, int Count);
 public record PairCount(Owner A, Owner B, int Count);
@@ -59,9 +67,9 @@ public class HallStats
     private readonly Dictionary<string, double> rosteredPoints;
 
     public List<Stint> Stints { get; }
-    public List<Boomerang> Boomerangs { get; }
-    public List<Stint> LongestTenures { get; }
-    public List<Journeyman> Journeymen { get; }
+    public RosterLore GameWeekLore { get; }
+    public RosterLore AllMovesLore { get; }
+    public RosterLore Lore(StintMode mode) => mode == StintMode.AllMoves ? AllMovesLore : GameWeekLore;
     public List<Loyalty> MostLoyal { get; }
 
     public List<LineupRow> Lineups { get; }
@@ -124,21 +132,9 @@ public class HallStats
         }
         stintsByPair = Stints.ToLookup(s => (s.PlayerId, s.OwnerId));
 
-        Boomerangs = stintsByPair
-            .Where(g => g.Count() >= 2)
-            .Select(g => new Boomerang(d.PlayerOf(g.Key.PlayerId), d.OwnerOf(g.Key.OwnerId), g.OrderBy(s => s.StartIdx).ToList()))
-            .OrderByDescending(b => b.Stints.Count)
-            .ThenByDescending(b => b.Stints.Sum(s => s.Weeks))
-            .ToList();
-
-        LongestTenures = Stints.OrderByDescending(s => s.Weeks).ThenByDescending(s => s.StarterPoints).ToList();
-
-        Journeymen = Stints
-            .GroupBy(s => s.PlayerId)
-            .Select(g => new Journeyman(d.PlayerOf(g.Key),
-                g.OrderBy(s => s.StartIdx).Select(s => s.OwnerId).Distinct().Select(d.OwnerOf).ToList()))
-            .OrderByDescending(j => j.Owners.Count)
-            .Take(10).ToList();
+        GameWeekLore = BuildLore(Stints.Select(s => new StintView(
+            s.PlayerId, s.OwnerId, StintLabel(s), null, s.Weeks, $"{s.Weeks} wks", s.Starts, s.StarterPoints, null, s.StartIdx)).ToList());
+        AllMovesLore = BuildLore(OwnershipStints());
 
         MostLoyal = stintsByPair
             .Select(g => new Loyalty(d.PlayerOf(g.Key.PlayerId), d.OwnerOf(g.Key.OwnerId), g.Sum(s => s.Starts), g.Sum(s => s.StarterPoints)))
@@ -263,6 +259,144 @@ public class HallStats
         return Picks.Where(p => filter(p.Pick) && p.Pick.Round == 1 && p.Pick.Season < newest)
             .OrderBy(p => p.LeaguePoints).ToList();
     }
+
+    private RosterLore BuildLore(List<StintView> stints)
+    {
+        var byPair = stints.ToLookup(s => (s.PlayerId, s.OwnerId));
+
+        var boomerangs = byPair
+            .Where(g => g.Count() >= 2)
+            .Select(g => new Boomerang(d.PlayerOf(g.Key.PlayerId), d.OwnerOf(g.Key.OwnerId), g.OrderBy(s => s.Order).ToList()))
+            .OrderByDescending(b => b.Stints.Count)
+            .ThenByDescending(b => b.Stints.Sum(s => s.Length))
+            .ToList();
+
+        var tenures = stints.OrderByDescending(s => s.Length).ThenByDescending(s => s.Points).ToList();
+
+        var journeymen = stints
+            .GroupBy(s => s.PlayerId)
+            .Select(g => new Journeyman(d.PlayerOf(g.Key),
+                g.OrderBy(s => s.Order).Select(s => s.OwnerId).Distinct().Select(d.OwnerOf).ToList()))
+            .OrderByDescending(j => j.Owners.Count)
+            .Take(10).ToList();
+
+        return new RosterLore(boomerangs, tenures, journeymen);
+    }
+
+    private sealed class OpenStint(string playerId, string ownerId, DateTimeOffset start, int season, int leg, string how)
+    {
+        public string PlayerId { get; } = playerId;
+        public string OwnerId { get; } = ownerId;
+        public DateTimeOffset Start { get; } = start;
+        public (int Season, int Leg) StartKey { get; } = (season, leg);
+        public string How { get; } = how;
+        public DateTimeOffset? End { get; set; }
+        public string? EndHow { get; set; }
+        public int Starts { get; set; }
+        public double Points { get; set; }
+    }
+
+    /// <summary>
+    /// Stints from the ownership timeline: every draft pick, add, drop, and trade in time order,
+    /// so offseason pickups and cuts count even when the player never sat on a game-week roster.
+    /// Starts and points come from the weekly rosters that fall inside each stint.
+    /// </summary>
+    private List<StintView> OwnershipStints()
+    {
+        var events = new List<(DateTimeOffset At, int Season, int Leg, string Player, string Owner, bool Add, string How)>();
+        foreach (var p in h.Picks)
+        {
+            var at = p.DraftedAt ?? new DateTimeOffset(p.Season, 5, 1, 0, 0, 0, TimeSpan.Zero);
+            events.Add((at, p.Season, 0, p.PlayerId, p.OwnerId, true, p.IsStartup ? "startup draft" : $"{p.Season} rookie draft"));
+        }
+        foreach (var t in h.Transactions)
+        {
+            foreach (var m in t.Drops)
+                events.Add((t.Created, t.Season, t.Leg, m.PlayerId, m.OwnerId, false, t.Type == "trade" ? "traded away" : "dropped"));
+            var how = t.Type switch
+            {
+                "trade" => "trade",
+                "waiver" => t.Bid > 0 ? $"waiver (${t.Bid})" : "waiver",
+                "free_agent" => "free agent",
+                _ => "commissioner",
+            };
+            foreach (var m in t.Adds)
+                events.Add((t.Created, t.Season, t.Leg, m.PlayerId, m.OwnerId, true, how));
+        }
+
+        var stints = new List<OpenStint>();
+        foreach (var player in events.GroupBy(e => e.Player))
+        {
+            var open = new Dictionary<string, OpenStint>();
+            // Drops before adds at the same moment, so both halves of a trade line up.
+            foreach (var e in player.OrderBy(e => e.At).ThenBy(e => e.Add))
+            {
+                if (!e.Add)
+                {
+                    if (open.Remove(e.Owner, out var closing)) { closing.End = e.At; closing.EndHow = e.How; }
+                    continue;
+                }
+                if (open.ContainsKey(e.Owner)) continue;
+                // A player is on one roster at a time; close anything a missing drop left open.
+                foreach (var other in open.Values) { other.End = e.At; other.EndHow = "moved"; }
+                open.Clear();
+                var s = new OpenStint(e.Player, e.Owner, e.At, e.Season, e.Leg, e.How);
+                open[e.Owner] = s;
+                stints.Add(s);
+            }
+        }
+
+        // Attribute each game week to the stint that started most recently before it.
+        var byPair = stints.ToLookup(s => (s.PlayerId, s.OwnerId));
+        var orphanWeeks = new List<Stint>();
+        foreach (var r in d.Rosters)
+        {
+            foreach (var p in r.Players)
+            {
+                var candidates = byPair[(p, r.OwnerId)].ToList();
+                if (candidates.Count == 0) continue;
+                var stint = candidates
+                    .Where(s => s.StartKey.Season < r.Season || (s.StartKey.Season == r.Season && s.StartKey.Leg <= r.Week))
+                    .MaxBy(s => s.Start) ?? candidates.MinBy(s => s.Start)!;
+                if (r.Starters.Contains(p))
+                {
+                    stint.Starts++;
+                    stint.Points += r.PlayerPoints.GetValueOrDefault(p);
+                }
+            }
+        }
+
+        var views = stints.Select(s =>
+        {
+            var end = s.End ?? DateTimeOffset.UtcNow;
+            var days = Math.Max(0, (end - s.Start).TotalDays);
+            return new StintView(s.PlayerId, s.OwnerId, DateRange(s.Start, s.End),
+                $"{s.How} → {s.EndHow ?? "still rostered"}", days, Duration(days), s.Starts, s.Points, s.Start, 0);
+        }).ToList();
+
+        // Pairs with game weeks but no recorded moves (gaps in Sleeper's history) keep their game-week stints.
+        var covered = stints.Select(s => (s.PlayerId, s.OwnerId)).ToHashSet();
+        var fallback = Stints.Where(s => !covered.Contains((s.PlayerId, s.OwnerId)))
+            .Select(s => new StintView(s.PlayerId, s.OwnerId, StintLabel(s), "from game weeks (no recorded move)",
+                s.Weeks * 7, Duration(s.Weeks * 7), s.Starts, s.StarterPoints, null, 0));
+
+        // Order = chronological position, for sorting a player's stints and journeys.
+        return views.Concat(fallback)
+            .OrderBy(v => v.Start ?? DateTimeOffset.MaxValue)
+            .Select((v, i) => v with { Order = i })
+            .ToList();
+    }
+
+    private static string DateRange(DateTimeOffset start, DateTimeOffset? end)
+    {
+        var s = start.ToLocalTime();
+        if (end is not { } e) return $"{s:MMM d, yyyy} to now";
+        var en = e.ToLocalTime();
+        return s.Year == en.Year ? $"{s:MMM d} to {en:MMM d, yyyy}" : $"{s:MMM d, yyyy} to {en:MMM d, yyyy}";
+    }
+
+    private static string Duration(double days) =>
+        days < 1 ? "< 1 day" : days < 60 ? $"{days:0} days" : days < 730 ? $"{days / 7:0} wks" : $"{days / 365.25:0.0} yrs";
 
     public string StintLabel(Stint s)
     {

@@ -54,6 +54,9 @@ public record DraftPick(int Season, bool IsStartup, int Round, int PickNo, int R
 {
     /// <summary>Roster that originally owned this pick (from the draft's slot order).</summary>
     public int? OriginalRosterId { get; init; }
+
+    /// <summary>When the draft started; orders the pick against offseason transactions.</summary>
+    public DateTimeOffset? DraftedAt { get; init; }
 }
 
 /// <summary>Transactions and drafts, loaded only when the Hall of Greatness page needs them.</summary>
